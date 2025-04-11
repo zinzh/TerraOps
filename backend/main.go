@@ -13,9 +13,9 @@ import (
 	"github.com/zinzh/TerraOps/backend/internal/auth"
 	"github.com/zinzh/TerraOps/backend/internal/config"
 	"github.com/zinzh/TerraOps/backend/internal/database"
-	"github.com/zinzh/TerraOps/backend/internal/git" // Added
+	"github.com/zinzh/TerraOps/backend/internal/git"
 	"github.com/zinzh/TerraOps/backend/internal/handlers"
-	"github.com/zinzh/TerraOps/backend/internal/parser" // Added
+	"github.com/zinzh/TerraOps/backend/internal/parser"
 	"github.com/zinzh/TerraOps/backend/internal/repository"
 )
 
@@ -31,8 +31,8 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	// --- Initialize Services --- // Added Section
-	gitSvc, err := git.NewService("") // Use default temp dir path
+	// --- Initialize Services ---
+	gitSvc, err := git.NewService("")
 	if err != nil {
 		log.Fatalf("Failed to initialize Git service: %v", err)
 	}
@@ -41,13 +41,15 @@ func main() {
 	// --- Initialize Repositories ---
 	userRepo := repository.NewUserRepository(dbpool)
 	blueprintRepo := repository.NewBlueprintRepository(dbpool)
+	instanceRepo := repository.NewClientInstanceRepository(dbpool) // Added
 
-	// --- Initialize Handlers (Inject Services) ---
+	// --- Initialize Handlers ---
 	healthHandler := handlers.NewHealthHandler(dbpool)
 	userHandler := handlers.NewUserHandler(userRepo)
 	authHandler := handlers.NewAuthHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
-	// Inject services into BlueprintHandler
-	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo, gitSvc, parserSvc) // Updated
+	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo, gitSvc, parserSvc)
+	// Added ClientInstanceHandler
+	instanceHandler := handlers.NewClientInstanceHandler(instanceRepo, blueprintRepo, gitSvc)
 
 	// --- Setup Routes ---
 	// gin.SetMode(gin.ReleaseMode)
@@ -64,10 +66,14 @@ func main() {
 		{
 			usersGroup.POST("", userHandler.RegisterUser)
 		}
+
+		// --- Protected Routes ---
 		protected := api.Group("")
 		protected.Use(auth.AuthMiddleware(cfg.JWTSecret))
 		{
 			protected.GET("/profile", authHandler.GetUserProfile)
+
+			// --- Blueprint Routes ---
 			blueprintRoutes := protected.Group("/blueprints")
 			{
 				blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
@@ -75,12 +81,25 @@ func main() {
 				blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
 				blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
 				blueprintRoutes.DELETE("/:id", blueprintHandler.DeleteBlueprint)
-				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables) // Uses the real implementation now
+				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables)
 			}
-		}
-	}
+
+			// --- Client Instance Routes --- // Added Section
+			instanceRoutes := protected.Group("/client-instances")
+			{
+				instanceRoutes.POST("", instanceHandler.CreateClientInstance)
+				instanceRoutes.GET("", instanceHandler.ListClientInstances)
+				instanceRoutes.GET("/:id", instanceHandler.GetClientInstance)
+				instanceRoutes.PUT("/:id", instanceHandler.UpdateClientInstance)
+				instanceRoutes.DELETE("/:id", instanceHandler.DeleteClientInstance)
+				instanceRoutes.POST("/:id/sync", instanceHandler.SyncClientInstance) // Placeholder
+			}
+
+		} // End Protected Group
+	} // End API Group
 
 	// --- Start Server & Graceful Shutdown ---
+	// ... (server start/shutdown logic remains the same) ...
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: router,
