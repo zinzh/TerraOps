@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
+	"github.com/zinzh/TerraOps/backend/internal/auth" // Added auth import
 	"github.com/zinzh/TerraOps/backend/internal/config"
 	"github.com/zinzh/TerraOps/backend/internal/database"
 	"github.com/zinzh/TerraOps/backend/internal/handlers"
@@ -37,18 +37,42 @@ func main() {
 
 	// --- Initialize Handlers ---
 	healthHandler := handlers.NewHealthHandler(dbpool)
-	userHandler := handlers.NewUserHandler(userRepo) // Create User Handler
+	userHandler := handlers.NewUserHandler(userRepo)
+	// Create Auth Handler using config values
+	authHandler := handlers.NewAuthHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 
 	// --- Setup Routes ---
 	api := router.Group("/api")
 	{
 		api.GET("/health", healthHandler.GetHealth)
 
+		// --- Auth Routes (No middleware needed) ---
+		authGroup := api.Group("/auth")
+		{
+			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/refresh", authHandler.Refresh) // Placeholder
+			// Add /register here if preferred over /users
+			// authGroup.POST("/register", userHandler.RegisterUser)
+		}
+
 		// --- User Routes ---
+		// Moved registration under /users for now
 		usersGroup := api.Group("/users")
 		{
-			usersGroup.POST("", userHandler.RegisterUser) // POST /api/users
-			// Add other user routes here later (e.g., GET /:id, GET /me)
+			// Public route for registration
+			usersGroup.POST("", userHandler.RegisterUser)
+		}
+
+		// --- Protected Routes (Example) ---
+		// Apply AuthMiddleware to all routes within this group
+		protected := api.Group("/protected")
+		protected.Use(auth.AuthMiddleware(cfg.JWTSecret)) // Apply middleware here
+		{
+			// Example protected endpoint
+			protected.GET("/profile", authHandler.GetUserProfile)
+
+			// Future protected routes (e.g., blueprint management, client config)
+			// go here
 		}
 	}
 
