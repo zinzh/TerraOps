@@ -66,15 +66,22 @@ function ClientInstanceListPage() {
   }
 
   const handleDelete = async (id: string, name: string) => {
-      if (window.confirm(`Are you sure you want to delete client instance "${name}"?`)) {
-          alert(`Delete instance ${id} (implementation pending)`);
-          // TODO: Call backend delete endpoint
-          // try {
-          //     await clientInstanceService.deleteInstance(id); // Need this function
-          //     fetchInstances();
-          // } catch (err) { ... handle error ... }
-      }
-  }
+    if (window.confirm(`Are you sure you want to delete client instance "${name}"? This action cannot be undone.`)) {
+        // Optional: Add specific loading state for delete?
+        setError(null); // Clear previous errors
+        try {
+            await clientInstanceService.deleteClientInstance(id);
+            // Refresh list after successful deletion
+            fetchInstances();
+            // Optional: Show success feedback (e.g., Snackbar)
+            // alert(`Instance "${name}" deleted successfully.`);
+        } catch (err: any) {
+            console.error(`Failed to delete client instance ${id}:`, err);
+            const errorMsg = err.response?.data?.error || 'Failed to delete client instance.';
+            setError(errorMsg); // Show delete error
+        }
+    }
+}
 
   const handleCreate = () => {
       navigate('/client-instances/new');
@@ -166,14 +173,18 @@ function ClientInstanceListPage() {
                     </TableCell>
                     <TableCell>{inst.description || '-'}</TableCell>
                     <TableCell>
-                        <Tooltip title={inst.blueprint_id}>
-                            {/* Link to blueprint detail later */}
-                            <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                {inst.blueprint_id.substring(0, 8)}...
-                            </Typography>
-                        </Tooltip>
-                        {/* TODO: Fetch blueprint name along with instance list */}
-                    </TableCell>
+                             {inst.blueprint_name ? (
+                                 <RouterLink to={`/blueprints/${inst.blueprint_id}`} onClick={(e) => e.stopPropagation()}>
+                                     {inst.blueprint_name}
+                                 </RouterLink>
+                             ) : (
+                                 <Tooltip title={inst.blueprint_id}>
+                                     <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                         {inst.blueprint_id.substring(0, 8)}... (Not Found?)
+                                     </Typography>
+                                 </Tooltip>
+                             )}
+                        </TableCell>
                     <TableCell>
                         <Link href={inst.client_repo_url.startsWith('http') ? inst.client_repo_url : '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                             {inst.client_repo_url}

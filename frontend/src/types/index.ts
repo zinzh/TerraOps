@@ -35,6 +35,7 @@ export interface User {
     last_synced_at?: string; // ISO String
     created_at: string;     // ISO String
     updated_at: string;     // ISO String
+    blueprint_name?: string; // Added
   }
   
   // Type for the parsed variable definition within a Blueprint
@@ -46,6 +47,7 @@ export interface User {
       default?: any; // Store raw JSON representation of default
       sensitive: boolean;
       nullable: boolean;
+      
   }
   
   // Type for the map stored in Blueprint.variables_definition

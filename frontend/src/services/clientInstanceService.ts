@@ -68,17 +68,30 @@ const createClientInstance = async (data: CreateClientInstanceData): Promise<Cli
 
 // Add list, get, update, sync functions later if needed for other pages
 
-const listClientInstances = async (): Promise<ClientInstance[]> => {
-    const response = await apiClient.get<ClientInstance[]>('/client-instances');
-    return response.data;
+const listClientInstances = async (): Promise<ClientInstance[]> => { // Return type includes blueprint_name now
+    try {
+        const response = await apiClient.get<ClientInstance[]>('/client-instances');
+        return response.data;
+    } catch (error: any) {
+         console.error("Error fetching client instances:", error);
+         throw error;
+    }
 }
 
-
+const deleteClientInstance = async (id: string): Promise<void> => {
+    try {
+        await apiClient.delete(`/client-instances/${id}`);
+    } catch (error: any) {
+        console.error(`Error deleting client instance ${id}:`, error);
+        throw error; // Re-throw to be handled by the component
+    }
+};
 const clientInstanceService = {
     createClientInstance,
     listClientInstances, // Add list function
     getClientInstanceById, // Added
     syncClientInstance,
+    deleteClientInstance
     // ... other functions
 };
 
