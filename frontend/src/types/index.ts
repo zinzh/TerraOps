@@ -22,4 +22,31 @@ export interface User {
       updated_at: string;
   }
   
-  // Add other types like ClientInstance later
+  export interface ClientInstance {
+    id: string;
+    name: string;
+    description?: string;
+    blueprint_id: string;
+    variable_values?: any; // Store as raw JSON object for now
+    client_repo_url: string;
+    client_repo_branch: string;
+    last_sync_status?: string;
+    last_sync_message?: string;
+    last_synced_at?: string; // ISO String
+    created_at: string;     // ISO String
+    updated_at: string;     // ISO String
+  }
+  
+  // Type for the parsed variable definition within a Blueprint
+  // Matches backend models/tfvariable.go
+  export interface TfVariable {
+      name: string;
+      type: any; // Store raw JSON representation of type for now
+      description?: string;
+      default?: any; // Store raw JSON representation of default
+      sensitive: boolean;
+      nullable: boolean;
+  }
+  
+  // Type for the map stored in Blueprint.variables_definition
+  export type VariableDefinitions = Record<string, TfVariable>;

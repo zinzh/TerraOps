@@ -6,6 +6,7 @@ import BlueprintListPage from './pages/BlueprintListPage';
 import AppLayout from './components/AppLayout'; // Import the layout
 import BlueprintCreatePage from './pages/BlueprintCreatePage';
 import BlueprintDetailPage from './pages/BlueprintDetailPage';
+import ClientInstanceCreatePage from './pages/ClientInstanceCreatePage';
 
 // MUI Theme Provider
 import { ThemeProvider, createTheme } from '@mui/material/styles';
@@ -51,6 +52,10 @@ function App() {
             <Route
              path="/blueprints/:id" // Detail page  <<-- ADD THIS ROUTE
              element={<ProtectedRoute><AppLayout><BlueprintDetailPage /></AppLayout></ProtectedRoute>}
+           />
+           <Route
+             path="/client-instances/new" // <<-- ADD THIS ROUTE
+             element={<ProtectedRoute><AppLayout><ClientInstanceCreatePage /></AppLayout></ProtectedRoute>}
            />
            {/* Add detail route later */}
            {/* <Route path="/blueprints/:id" element={...} /> */}
