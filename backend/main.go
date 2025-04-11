@@ -17,8 +17,10 @@ import (
 	"github.com/zinzh/TerraOps/backend/internal/database"
 	"github.com/zinzh/TerraOps/backend/internal/git"
 	"github.com/zinzh/TerraOps/backend/internal/handlers"
+	"github.com/zinzh/TerraOps/backend/internal/maintf"
 	"github.com/zinzh/TerraOps/backend/internal/parser"
 	"github.com/zinzh/TerraOps/backend/internal/repository"
+	"github.com/zinzh/TerraOps/backend/internal/tfvars"
 )
 
 func main() {
@@ -34,11 +36,18 @@ func main() {
 	defer dbpool.Close()
 
 	// --- Initialize Services ---
-	gitSvc, err := git.NewService("")
+	gitSvc, err := git.NewService(
+		"", // Default base path
+		cfg.GitSSHKeyPath,
+		cfg.GitUserName,
+		cfg.GitUserEmail,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize Git service: %v", err)
 	}
 	parserSvc := parser.NewHCLParserService()
+	tfvarsGen := tfvars.NewGenerator() // Added Tfvars Generator
+	mainTfGen := maintf.NewGenerator() // Added MainTf Generator
 
 	// --- Initialize Repositories ---
 	userRepo := repository.NewUserRepository(dbpool)
@@ -50,7 +59,13 @@ func main() {
 	userHandler := handlers.NewUserHandler(userRepo)
 	authHandler := handlers.NewAuthHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo, gitSvc, parserSvc)
-	instanceHandler := handlers.NewClientInstanceHandler(instanceRepo, blueprintRepo, gitSvc)
+	instanceHandler := handlers.NewClientInstanceHandler(
+		instanceRepo,
+		blueprintRepo,
+		gitSvc,
+		tfvarsGen, // Added
+		mainTfGen, // Added
+	)
 
 	// --- Setup Routes ---
 	// gin.SetMode(gin.ReleaseMode)

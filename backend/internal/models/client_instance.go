@@ -32,7 +32,7 @@ type CreateClientInstanceRequest struct {
 	Description      *string          `json:"description,omitempty"`
 	BlueprintID      uuid.UUID        `json:"blueprint_id" binding:"required"`
 	VariableValues   *json.RawMessage `json:"variable_values,omitempty"` // Allow initial values on creation
-	ClientRepoURL    string           `json:"client_repo_url" binding:"required,url"`
+	ClientRepoURL    string           `json:"client_repo_url" binding:"required"`
 	ClientRepoBranch *string          `json:"client_repo_branch,omitempty"` // Optional, defaults later
 }
 
@@ -41,7 +41,7 @@ type UpdateClientInstanceRequest struct {
 	Description *string `json:"description,omitempty"`
 	// BlueprintID cannot typically be changed after creation
 	VariableValues   *json.RawMessage `json:"variable_values,omitempty"` // Allow updating values
-	ClientRepoURL    *string          `json:"client_repo_url,omitempty" binding:"omitempty,url"`
+	ClientRepoURL    *string          `json:"client_repo_url,omitempty" binding:"omitempty"`
 	ClientRepoBranch *string          `json:"client_repo_branch,omitempty"`
 }
 

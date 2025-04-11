@@ -15,6 +15,9 @@ type Config struct {
 	JWTSecret       string        // Added
 	AccessTokenTTL  time.Duration // Added
 	RefreshTokenTTL time.Duration // Added (Optional for later)
+	GitSSHKeyPath   string        // Added
+	GitUserName     string        // Added
+	GitUserEmail    string        // Added
 }
 
 func Load() (*Config, error) {
@@ -64,11 +67,30 @@ func Load() (*Config, error) {
 	}
 	refreshTokenTTL := time.Duration(refreshTokenTTLHours) * time.Hour
 
+	gitSSHKeyPath := os.Getenv("GIT_SSH_KEY_PATH")
+	if gitSSHKeyPath == "" {
+		log.Println("Warning: GIT_SSH_KEY_PATH not set.")
+		// No default here, it's required if SSH auth is used
+	}
+
+	gitUserName := os.Getenv("GIT_USER_NAME")
+	if gitUserName == "" {
+		gitUserName = "TerraOps Bot" // Default commit user name
+	}
+
+	gitUserEmail := os.Getenv("GIT_USER_EMAIL")
+	if gitUserEmail == "" {
+		gitUserEmail = "terraops-bot@example.com" // Default commit user email
+	}
+
 	return &Config{
 		Port:            port,
 		DatabaseURL:     dbURL,
-		JWTSecret:       jwtSecret,       // Added
-		AccessTokenTTL:  accessTokenTTL,  // Added
-		RefreshTokenTTL: refreshTokenTTL, // Added
+		JWTSecret:       jwtSecret,
+		AccessTokenTTL:  accessTokenTTL,
+		RefreshTokenTTL: refreshTokenTTL,
+		GitSSHKeyPath:   gitSSHKeyPath, // Added
+		GitUserName:     gitUserName,   // Added
+		GitUserEmail:    gitUserEmail,  // Added
 	}, nil
 }

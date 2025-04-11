@@ -1,37 +1,46 @@
 package handlers
 
 import (
-	"encoding/json" // Added
-	"errors"        // Added
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"            // Added
+	"path/filepath" // Added
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/zinzh/TerraOps/backend/internal/git" // Added
+	"github.com/zinzh/TerraOps/backend/internal/git"
+	"github.com/zinzh/TerraOps/backend/internal/maintf" // Added
 	"github.com/zinzh/TerraOps/backend/internal/models"
 	"github.com/zinzh/TerraOps/backend/internal/repository"
+	"github.com/zinzh/TerraOps/backend/internal/tfvars" // Added
 )
 
 type ClientInstanceHandler struct {
-	InstanceRepo *repository.ClientInstanceRepository
-	// We also need the BlueprintRepo to validate blueprint ID on creation
+	InstanceRepo  *repository.ClientInstanceRepository
 	BlueprintRepo *repository.BlueprintRepository
-	// We need GitService for the actual sync later
-	GitSvc *git.Service
-	// Add TfvarsGenerator service later
+	GitSvc        *git.Service
+	TfvarsGen     *tfvars.Generator // Added
+	MainTfGen     *maintf.Generator // Added
 }
 
+// Updated constructor
 func NewClientInstanceHandler(
 	instanceRepo *repository.ClientInstanceRepository,
-	blueprintRepo *repository.BlueprintRepository, // Added
-	gitSvc *git.Service, // Added
+	blueprintRepo *repository.BlueprintRepository,
+	gitSvc *git.Service,
+	tfvarsGen *tfvars.Generator, // Added
+	mainTfGen *maintf.Generator, // Added
 ) *ClientInstanceHandler {
 	return &ClientInstanceHandler{
 		InstanceRepo:  instanceRepo,
-		BlueprintRepo: blueprintRepo, // Added
-		GitSvc:        gitSvc,        // Added
+		BlueprintRepo: blueprintRepo,
+		GitSvc:        gitSvc,
+		TfvarsGen:     tfvarsGen, // Added
+		MainTfGen:     mainTfGen, // Added
 	}
 }
 
@@ -222,25 +231,117 @@ func (h *ClientInstanceHandler) SyncClientInstance(c *gin.Context) {
 		return
 	}
 
-	// --- TODO: Implement Git Sync Logic ---
-	// 1. Get ClientInstance details (repo URL, branch) and Blueprint details (for module source).
-	// 2. Generate `main.tf` content (calling the blueprint module).
-	// 3. Generate `terraform.tfvars` content from req.VariableValues.
-	// 4. Use h.GitSvc to clone the client repo (need credentials management).
-	// 5. Write/update main.tf and terraform.tfvars in the cloned repo.
-	// 6. Commit the changes (use req.CommitMessage or generate one).
-	// 7. Push the changes to the client repo (need credentials management).
-	// 8. Handle errors during Git operations.
-	// 9. Update the sync status in the DB using h.InstanceRepo.UpdateSyncStatus.
-	// ---
+	log.Printf("Starting sync process for client instance ID %s\n", idStr)
 
-	log.Printf("Placeholder: Received request to sync variables for client instance ID %s\n", idStr)
-	// Simulate sync attempt and update status (replace with real logic)
-	syncErr := h.InstanceRepo.UpdateSyncStatus(c.Request.Context(), instanceID, req.VariableValues, "pending", nil) // Mark as pending
-	if syncErr != nil {
-		log.Printf("Failed to update sync status for instance %s: %v", idStr, syncErr)
+	// --- Orchestration Logic ---
+	var syncErrMsg *string
+	syncStatus := "success" // Assume success initially
+	var repoPath string     // Track repo path for cleanup
+
+	// Use a helper function or run steps directly
+	err = func() error { // Use closure to handle errors and defer cleanup easily
+		// 1. Get Client Instance details
+		instance, err := h.InstanceRepo.GetClientInstanceByID(c.Request.Context(), instanceID)
+		if err != nil {
+			return fmt.Errorf("failed to get client instance details: %w", err)
+		}
+
+		// 2. Get Blueprint details (need repo URL)
+		blueprint, err := h.BlueprintRepo.GetBlueprintByID(c.Request.Context(), instance.BlueprintID)
+		if err != nil {
+			return fmt.Errorf("failed to get blueprint details (ID: %s): %w", instance.BlueprintID, err)
+		}
+
+		// Define repo dir name based on instance ID
+		cloneDirName := instanceID.String()
+		defer func() { // Ensure cleanup even on intermediate errors
+			if repoPath != "" {
+				cleanupErr := h.GitSvc.CleanupRepository(cloneDirName)
+				if cleanupErr != nil {
+					log.Printf("Error cleaning up repo %s during sync: %v\n", repoPath, cleanupErr)
+				}
+			}
+		}()
+
+		// 3. Clone or Open Client Repo
+		repo, path, err := h.GitSvc.CloneOrOpenRepository(instance.ClientRepoURL, instance.ClientRepoBranch, cloneDirName)
+		if err != nil {
+			return fmt.Errorf("failed to clone/open client repository: %w", err)
+		}
+		repoPath = path // Assign repoPath for cleanup defer
+
+		// 4. Generate main.tf content
+		// Use blueprint name for module block name (sanitize if needed)
+		moduleName := blueprint.Name                                                      // TODO: Sanitize name for HCL identifier if needed
+		mainTfContent, err := h.MainTfGen.Generate(moduleName, blueprint.GitRepoURL, nil) // Add version later if needed
+		if err != nil {
+			return fmt.Errorf("failed to generate main.tf content: %w", err)
+		}
+
+		// 5. Generate terraform.tfvars content
+		tfvarsContent, err := h.TfvarsGen.Generate(req.VariableValues)
+		if err != nil {
+			return fmt.Errorf("failed to generate terraform.tfvars content: %w", err)
+		}
+
+		// 6. Write files to the cloned repo path
+		mainTfPath := filepath.Join(repoPath, "main.tf")
+		tfvarsPath := filepath.Join(repoPath, "terraform.tfvars")
+
+		log.Printf("Writing main.tf to %s", mainTfPath)
+		err = os.WriteFile(mainTfPath, []byte(mainTfContent), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to write main.tf: %w", err)
+		}
+
+		log.Printf("Writing terraform.tfvars to %s", tfvarsPath)
+		err = os.WriteFile(tfvarsPath, []byte(tfvarsContent), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to write terraform.tfvars: %w", err)
+		}
+
+		// 7. Commit and Push
+		commitMsg := fmt.Sprintf("Update configuration for %s", instance.Name)
+		if req.CommitMessage != nil && *req.CommitMessage != "" {
+			commitMsg = *req.CommitMessage
+		}
+
+		err = h.GitSvc.CommitAndPush(repo, repoPath, instance.ClientRepoBranch, commitMsg)
+		if err != nil {
+			return fmt.Errorf("failed to commit and push changes: %w", err)
+		}
+
+		log.Printf("Successfully synced files to Git for instance %s", idStr)
+		return nil // Indicate success from the closure
+	}() // Execute the closure
+
+	// --- Update Status in DB ---
+	if err != nil {
+		log.Printf("Sync failed for instance %s: %v\n", idStr, err)
+		syncStatus = "failed"
+		errMsg := err.Error()
+		syncErrMsg = &errMsg
 	}
 
-	// Return Accepted (202) as sync is likely asynchronous or takes time
-	c.JSON(http.StatusAccepted, gin.H{"message": "Sync request received, processing.", "instance_id": instanceID})
+	// Update DB regardless of success/failure
+	dbUpdateErr := h.InstanceRepo.UpdateSyncStatus(c.Request.Context(), instanceID, req.VariableValues, syncStatus, syncErrMsg)
+	if dbUpdateErr != nil {
+		log.Printf("CRITICAL: Failed to update sync status in DB for instance %s after sync attempt: %v\n", idStr, dbUpdateErr)
+		// Decide how to report this compound error
+		if err != nil { // If sync also failed
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Sync failed and failed to update status in DB", "sync_error": err.Error(), "db_error": dbUpdateErr.Error()})
+		} else { // Sync succeeded, but DB update failed
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Sync succeeded but failed to update status in DB", "db_error": dbUpdateErr.Error()})
+		}
+		return
+	}
+
+	// --- Final Response ---
+	if err != nil {
+		// Sync failed, error already logged and stored in DB
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Sync process failed", "details": err.Error()})
+	} else {
+		// Sync succeeded
+		c.JSON(http.StatusOK, gin.H{"message": "Client instance configuration synced successfully.", "instance_id": instanceID})
+	}
 }

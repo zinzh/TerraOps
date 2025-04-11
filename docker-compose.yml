@@ -10,14 +10,18 @@ services:
     ports:
       - "8080:8080" # Map host port 8080 to container port 8080
     volumes:
-      # Mount source code for hot-reloading (syncs changes from host to container)
       - ./backend:/app
-      # Named volume for Go build cache (optional, speeds up builds)
-      # - go-build-cache:/go/pkg
+      # Mount the private key read-only
+      # NOTE: Ensure terraops_deploy_key permissions are strict (e.g., 600) on the host
+      - ./terraops_deploy_key:/run/secrets/git_ssh_key:ro # Mount as a pseudo-secret
+    # ... (depends_on, command, networks) ...
     environment:
       - PORT=8080
-      # Ensure this matches your DB service and credentials
       - DATABASE_URL=postgresql://user:password@db:5432/appdb?sslmode=disable
+      - JWT_SECRET=your_super_secret_key_for_development # Change this!
+      - GIT_SSH_KEY_PATH=/run/secrets/git_ssh_key # Path inside the container
+      - GIT_USER_NAME=TerraOps Bot # Git commit user name
+      - GIT_USER_EMAIL=terraops-bot@example.com # Git commit user email
     depends_on:
       db:
         condition: service_healthy # Wait for DB to be ready
