@@ -1,8 +1,9 @@
-import React, { useState, useEffect, FormEvent, ChangeEvent } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'; // Remove FormEvent, ChangeEvent if no longer needed directly
 import { useNavigate } from 'react-router-dom';
+import { useForm, Controller, SubmitHandler, Resolver } from 'react-hook-form'; // Import RHF hooks
 import blueprintService from '../services/blueprintService';
 import clientInstanceService from '../services/clientInstanceService';
-import { Blueprint, TfVariable, VariableDefinitions } from '../types';
+import { Blueprint, TfVariable, VariableDefinitions, ClientInstance } from '../types'; // Add ClientInstance
 
 // MUI Components
 import Box from '@mui/material/Box';
@@ -22,291 +23,300 @@ import Divider from '@mui/material/Divider';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
 
+// Define the shape of our form data
+interface ClientInstanceFormData {
+    instanceName: string;
+    instanceDescription?: string;
+    clientRepoUrl: string;
+    clientRepoBranch?: string;
+    selectedBlueprintId: string;
+    // Variable values will be nested or handled dynamically
+    variables: Record<string, any>;
+}
+
 function ClientInstanceCreatePage() {
     const navigate = useNavigate();
 
-    // State for blueprints list and selection
+    // RHF setup
+    const { handleSubmit, control, watch, setValue, formState: { errors, isSubmitting }, reset } = useForm<ClientInstanceFormData>({
+        defaultValues: {
+            instanceName: '',
+            instanceDescription: '',
+            clientRepoUrl: '',
+            clientRepoBranch: 'main',
+            selectedBlueprintId: '',
+            variables: {},
+        },
+        // resolver: async (data) => { /* Custom validation later? */ return { values: data, errors: {} }; },
+    });
+
+
+    // State for blueprints list and the selected blueprint object
     const [blueprints, setBlueprints] = useState<Blueprint[]>([]);
-    const [selectedBlueprintId, setSelectedBlueprintId] = useState<string>('');
     const [selectedBlueprint, setSelectedBlueprint] = useState<Blueprint | null>(null);
     const [loadingBlueprints, setLoadingBlueprints] = useState<boolean>(true);
+    const [apiError, setApiError] = useState<string | null>(null); // For general API errors
 
-    // State for instance details
-    const [instanceName, setInstanceName] = useState('');
-    const [instanceDescription, setInstanceDescription] = useState('');
-    const [clientRepoUrl, setClientRepoUrl] = useState('');
-    const [clientRepoBranch, setClientRepoBranch] = useState('main'); // Default
-
-    // State for dynamic variable values
-    const [variableValues, setVariableValues] = useState<Record<string, any>>({});
-
-    // General loading/error state
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    // Watch the selected blueprint ID from the form state
+    const selectedBlueprintId = watch('selectedBlueprintId');
 
     // Fetch blueprints for the dropdown
     useEffect(() => {
         setLoadingBlueprints(true);
         blueprintService.listBlueprints()
             .then(data => {
-                // Filter for blueprints that have been parsed? Optional.
                 setBlueprints(data.filter(bp => bp.variables_definition));
             })
             .catch(err => {
                 console.error("Failed to fetch blueprints", err);
-                setError("Could not load available blueprints.");
+                setApiError("Could not load available blueprints.");
             })
             .finally(() => setLoadingBlueprints(false));
     }, []);
 
-    // Fetch selected blueprint details when selection changes
+    // React Hook Form requires stable default values.
+    // We update the 'variables' part of the form state when the blueprint changes.
     useEffect(() => {
         if (!selectedBlueprintId) {
             setSelectedBlueprint(null);
-            setVariableValues({}); // Clear values if blueprint deselected
+            setValue('variables', {}); // Reset variables in RHF state
             return;
         }
         const bp = blueprints.find(b => b.id === selectedBlueprintId);
         if (bp) {
             setSelectedBlueprint(bp);
-            // Initialize variableValues with defaults from blueprint
             const initialValues: Record<string, any> = {};
-            if (bp.variables_definition) {
-                const definitions = bp.variables_definition as VariableDefinitions;
-                Object.values(definitions).forEach(variable => {
-                    if (variable.default !== undefined && variable.default !== null) {
-                       // Default value is already JSON, use it directly
-                       initialValues[variable.name] = variable.default;
-                    } else {
-                       // Handle cases where default is null or undefined based on type maybe?
-                       // For simplicity, start with undefined or an appropriate zero value
-                       initialValues[variable.name] = getDefaultValueForType(variable.type);
-                    }
-                });
-            }
-            setVariableValues(initialValues);
+            const definitions = getVariableDefinitions(bp) || {};
+            Object.values(definitions).forEach(variable => {
+                 if (variable.default !== undefined && variable.default !== null) {
+                    initialValues[variable.name] = variable.default;
+                 } else {
+                    initialValues[variable.name] = getDefaultValueForType(variable.type);
+                 }
+            });
+             // Set the 'variables' field in RHF state
+            setValue('variables', initialValues, { shouldValidate: false, shouldDirty: false });
         } else {
-            setSelectedBlueprint(null); // Should not happen if ID came from list
-             setVariableValues({});
+            setSelectedBlueprint(null);
+            setValue('variables', {});
         }
-    }, [selectedBlueprintId, blueprints]);
-
-    const handleBlueprintChange = (event: SelectChangeEvent<string>) => {
-        setSelectedBlueprintId(event.target.value);
-    };
-
-    const handleVariableChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent<any>, varName: string) => {
-        const target = event.target;
-        let value: any;
-
-        if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-             // Handle boolean Switch/Checkbox
-             value = target.checked;
-        } else if (target instanceof HTMLInputElement && target.type === 'number') {
-            // Handle number input
-            value = target.value === '' ? undefined : Number(target.value); // Store as number
-        }
-        else {
-             // Handle text, select, etc.
-             value = target.value;
-        }
+    }, [selectedBlueprintId, blueprints, setValue]);
 
 
-        setVariableValues(prev => ({
-            ...prev,
-            [varName]: value,
-        }));
-    };
+    // Form submission handler using RHF
+    const onSubmit: SubmitHandler<ClientInstanceFormData> = async (data) => {
+        setApiError(null);
+        // Note: isSubmitting state from RHF handles loading state for the button
 
-    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        setError(null);
-
-        if (!selectedBlueprintId) {
-            setError('Please select a blueprint.');
-            return;
-        }
-        // Basic validation
-        if (!instanceName.trim() || !clientRepoUrl.trim()) {
-            setError('Instance Name and Client Repository URL are required.');
-            return;
-        }
-        // Could add URL/SSH validation like before
-
-
-        setLoading(true);
         const instanceData = {
-            name: instanceName.trim(),
-            description: instanceDescription.trim() || undefined,
-            blueprint_id: selectedBlueprintId,
-            variable_values: variableValues, // Send the collected values
-            client_repo_url: clientRepoUrl.trim(),
-            client_repo_branch: clientRepoBranch.trim() || 'main',
+            name: data.instanceName.trim(),
+            description: data.instanceDescription?.trim() || undefined,
+            blueprint_id: data.selectedBlueprintId,
+            variable_values: data.variables, // Use variables from RHF state
+            client_repo_url: data.clientRepoUrl.trim(),
+            client_repo_branch: data.clientRepoBranch?.trim() || 'main',
         };
 
         try {
             await clientInstanceService.createClientInstance(instanceData);
-            // Success: navigate to instance list page (to be created) or back to blueprints
-            navigate('/blueprints', { state: { message: 'Client Instance created successfully!' } });
+            navigate('/client-instances', { state: { message: 'Client Instance created successfully!' } });
         } catch (err: any) {
             console.error("Create client instance failed:", err);
             const errorMsg = err.response?.data?.error || 'Failed to create client instance.';
-            setError(errorMsg);
-        } finally {
-            setLoading(false);
+            setApiError(errorMsg);
         }
+        // RHF handles resetting isSubmitting automatically
     };
 
     // --- Helper Functions for Rendering ---
-    const getVariableDefinitions = (): VariableDefinitions | null => {
-        if (!selectedBlueprint || !selectedBlueprint.variables_definition) {
-            return null;
-        }
-        try {
-            // Assuming variables_definition is already a parsed object or needs parsing
-            if (typeof selectedBlueprint.variables_definition === 'string') {
-                 return JSON.parse(selectedBlueprint.variables_definition) as VariableDefinitions;
-            }
-            return selectedBlueprint.variables_definition as VariableDefinitions;
-        } catch(e) {
-             console.error("Failed to parse variables definition", e);
-             setError("Failed to read blueprint variable definitions.");
-             return null;
-        }
-    };
+    const getVariableDefinitions = (bp: Blueprint | null): VariableDefinitions | null => {
+        if (!bp || !bp.variables_definition) return null;
+         try {
+             if (typeof bp.variables_definition === 'string') {
+                  return JSON.parse(bp.variables_definition) as VariableDefinitions;
+             }
+             return bp.variables_definition as VariableDefinitions;
+         } catch(e) {
+              console.error("Failed to parse variables definition", e);
+              setApiError("Failed to read blueprint variable definitions."); // Use state setter
+              return null;
+         }
+     };
+     const definitions = getVariableDefinitions(selectedBlueprint); // Use state variable
 
-    const definitions = getVariableDefinitions();
+     const getDefaultValueForType = (typeStr: any): any => { /* ... same ... */
+         const typeJson = JSON.stringify(typeStr).toLowerCase();
+         if (typeJson.includes("bool")) return false;
+         if (typeJson.includes("number")) return 0;
+         if (typeJson.includes("list") || typeJson.includes("tuple")) return [];
+         if (typeJson.includes("map") || typeJson.includes("object")) return {};
+         return "";
+     };
 
-    // Simple default value based on type string (needs improvement)
-    const getDefaultValueForType = (typeStr: any): any => {
-        const typeJson = JSON.stringify(typeStr).toLowerCase(); // Basic check
-        if (typeJson.includes("bool")) return false;
-        if (typeJson.includes("number")) return 0;
-        if (typeJson.includes("list") || typeJson.includes("tuple")) return [];
-        if (typeJson.includes("map") || typeJson.includes("object")) return {};
-        return ""; // Default to empty string
-    }
+     // Render form field using RHF Controller
+     const renderVariableInput = (variable: TfVariable) => {
+         const key = variable.name;
+         const variablePath = `variables.${key}` as const; // Path for RHF
 
-    // Render form field based on variable definition
-    const renderVariableInput = (variable: TfVariable) => {
-        const key = variable.name;
-        const currentValue = variableValues[key] ?? ''; // Handle undefined
+         const typeString = JSON.stringify(variable.type).toLowerCase();
+         const isBool = typeString.includes('"bool"');
+         const isNumber = typeString.includes('"number"');
+         const isRequired = !variable.nullable && variable.default === undefined;
 
-        // Basic type checking based on JSON representation (can be improved)
-        const typeString = JSON.stringify(variable.type).toLowerCase(); // Get string like '"string"', '"bool"', '"list(string)"' etc.
-        const isBool = typeString.includes('"bool"');
-        const isNumber = typeString.includes('"number"');
-        // TODO: Add better handling for list, map, object (e.g., JSON editor, multi-input)
-
-        if (isBool) {
-             return (
-                <FormControlLabel
-                    control={
-                        <Switch
-                            checked={!!currentValue} // Ensure boolean value
-                            onChange={(e) => handleVariableChange(e, key)}
-                            name={key}
-                            disabled={loading}
-                        />
-                    }
-                    label={variable.name}
+         if (isBool) {
+              return (
+                 <FormControlLabel
                     key={key}
-                />
-            );
-        }
+                    control={
+                         <Controller
+                             name={variablePath}
+                             control={control}
+                             defaultValue={false} // Default value for RHF Controller
+                             render={({ field: { onChange, value, ref } }) => (
+                                 <Switch
+                                     checked={!!value} // Use value from RHF field state
+                                     onChange={onChange} // Use RHF onChange handler
+                                     inputRef={ref} // Connect ref
+                                     disabled={isSubmitting}
+                                 />
+                             )}
+                         />
+                     }
+                     label={key}
+                 />
+             );
+         }
 
-        return (
-            <TextField
-                key={key}
-                margin="dense" // Use dense margin for variable list
-                fullWidth
-                id={key}
-                label={variable.name}
-                name={key}
-                required={!variable.nullable && variable.default === undefined} // Basic required logic
-                value={currentValue}
-                onChange={(e) => handleVariableChange(e, key)}
-                disabled={loading}
-                helperText={variable.description || ''}
-                type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'}
-                multiline={!isNumber && !isBool && String(currentValue).length > 60} // Basic multiline for long strings
-                rows={!isNumber && !isBool && String(currentValue).length > 60 ? 3 : 1}
-                InputLabelProps={{
-                     shrink: true, // Keep label floated for pre-filled defaults
-                }}
-                // Consider adding adornments for sensitive fields later
-            />
-        );
-    };
+         return (
+             <Controller
+                 key={key}
+                 name={variablePath}
+                 control={control}
+                 rules={{ required: isRequired ? 'This field is required' : false }}
+                 render={({ field, fieldState: { error: fieldError } }) => (
+                     <TextField
+                         {...field} // Spread field props (onChange, onBlur, value, ref)
+                         margin="dense"
+                         fullWidth
+                         required={isRequired} // Visual indicator
+                         label={key}
+                         error={!!fieldError}
+                         helperText={fieldError?.message || variable.description || ''}
+                         disabled={isSubmitting}
+                         type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'}
+                         multiline={!isNumber && !isBool && String(field.value ?? '').length > 60}
+                         rows={!isNumber && !isBool && String(field.value ?? '').length > 60 ? 3 : 1}
+                         InputLabelProps={{ shrink: true }}
+                         // RHF handles value, no need for `value={...}` prop directly
+                         // RHF handles onChange, no need for `onChange={...}` prop directly
+                     />
+                 )}
+             />
+         );
+     };
 
     return (
         <Box>
-             <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/blueprints')} sx={{ mb: 2 }}>
-                 Back to Blueprints
+             <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/client-instances')} sx={{ mb: 2 }}>
+                 Back to Instances
              </Button>
              <Typography variant="h4" component="h1" gutterBottom>
                  Create New Client Instance
              </Typography>
 
-             {error && (
-                 <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-                     {error}
+             {apiError && (
+                 <Alert severity="error" sx={{ mb: 2 }} onClose={() => setApiError(null)}>
+                     {apiError}
                  </Alert>
              )}
 
             <Paper elevation={3} sx={{ p: 3 }}>
-                <Box component="form" onSubmit={handleSubmit} noValidate>
-                    {/* Section 1: Instance Details */}
+                 {/* Use RHF's handleSubmit */}
+                <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+                    {/* Section 1: Instance Details - Use Controller */}
                     <Typography variant="h6" gutterBottom>Instance Details</Typography>
-                    <TextField
-                        margin="normal" required fullWidth autoFocus
-                        id="instanceName" label="Instance Name" name="instanceName"
-                        value={instanceName} onChange={(e) => setInstanceName(e.target.value)} disabled={loading}
-                    />
-                     <TextField
-                         margin="normal" required fullWidth
-                         id="clientRepoUrl" label="Client Git Repository URL (SSH Recommended)" name="clientRepoUrl"
-                         value={clientRepoUrl} onChange={(e) => setClientRepoUrl(e.target.value)} disabled={loading}
+                    <Controller
+                         name="instanceName"
+                         control={control}
+                         rules={{ required: 'Instance Name is required' }}
+                         render={({ field, fieldState: { error: fieldError } }) => (
+                             <TextField {...field} margin="normal" required fullWidth autoFocus
+                                 id="instanceName" label="Instance Name"
+                                 error={!!fieldError} helperText={fieldError?.message}
+                                 disabled={isSubmitting}
+                             />
+                         )}
                      />
-                     <TextField
-                         margin="normal" fullWidth
-                         id="clientRepoBranch" label="Client Repository Branch" name="clientRepoBranch"
-                         value={clientRepoBranch} onChange={(e) => setClientRepoBranch(e.target.value)} disabled={loading}
-                         helperText="Defaults to 'main' if left empty"
-                     />
-                     <TextField
-                        margin="normal" fullWidth
-                        id="instanceDescription" label="Description (Optional)" name="instanceDescription"
-                        multiline rows={3}
-                        value={instanceDescription} onChange={(e) => setInstanceDescription(e.target.value)} disabled={loading}
-                    />
+                     <Controller
+                         name="clientRepoUrl"
+                         control={control}
+                         rules={{
+                             required: 'Client Repository URL is required',
+                             pattern: { // Basic URL/SSH format validation
+                                 value: /^(https?:\/\/|git@)/i,
+                                 message: "Enter a valid HTTP(S) or SSH Git URL"
+                             }
+                         }}
+                         render={({ field, fieldState: { error: fieldError } }) => (
+                              <TextField {...field} margin="normal" required fullWidth
+                                  id="clientRepoUrl" label="Client Git Repository URL (SSH Recommended)"
+                                  error={!!fieldError} helperText={fieldError?.message}
+                                  disabled={isSubmitting}
+                              />
+                          )}
+                      />
+                       <Controller
+                           name="clientRepoBranch"
+                           control={control}
+                           render={({ field }) => (
+                                <TextField {...field} margin="normal" fullWidth
+                                    id="clientRepoBranch" label="Client Repository Branch"
+                                    helperText="Defaults to 'main' if left empty"
+                                    disabled={isSubmitting}
+                                />
+                            )}
+                        />
+                       <Controller
+                           name="instanceDescription"
+                           control={control}
+                           render={({ field }) => (
+                                <TextField {...field} margin="normal" fullWidth
+                                    id="instanceDescription" label="Description (Optional)"
+                                    multiline rows={3}
+                                    disabled={isSubmitting}
+                                />
+                            )}
+                        />
+
 
                     <Divider sx={{ my: 3 }}/>
 
-                    {/* Section 2: Blueprint Selection */}
+                    {/* Section 2: Blueprint Selection - Use Controller */}
                     <Typography variant="h6" gutterBottom>Blueprint Selection</Typography>
-                     <FormControl fullWidth margin="normal" required disabled={loading || loadingBlueprints}>
-                         <InputLabel id="blueprint-select-label">Blueprint</InputLabel>
-                         <Select
-                             labelId="blueprint-select-label"
-                             id="blueprint-select"
-                             value={selectedBlueprintId}
-                             label="Blueprint"
-                             onChange={handleBlueprintChange}
-                         >
-                             <MenuItem value="" disabled>
-                                 <em>{loadingBlueprints ? 'Loading blueprints...' : 'Select a Blueprint'}</em>
-                             </MenuItem>
-                             {blueprints.map((bp) => (
-                                 <MenuItem key={bp.id} value={bp.id}>{bp.name}</MenuItem>
-                             ))}
-                         </Select>
-                         {!loadingBlueprints && blueprints.length === 0 && <FormHelperText error>No parsed blueprints found.</FormHelperText>}
-                     </FormControl>
+                     <Controller
+                         name="selectedBlueprintId"
+                         control={control}
+                         rules={{ required: 'Please select a blueprint' }}
+                         render={({ field, fieldState: { error: fieldError } }) => (
+                             <FormControl fullWidth margin="normal" required error={!!fieldError} disabled={isSubmitting || loadingBlueprints}>
+                                 <InputLabel id="blueprint-select-label">Blueprint</InputLabel>
+                                 <Select {...field} labelId="blueprint-select-label" label="Blueprint">
+                                     <MenuItem value="" disabled>
+                                         <em>{loadingBlueprints ? 'Loading...' : 'Select a Blueprint'}</em>
+                                     </MenuItem>
+                                     {blueprints.map((bp) => (
+                                         <MenuItem key={bp.id} value={bp.id}>{bp.name}</MenuItem>
+                                     ))}
+                                 </Select>
+                                 <FormHelperText>{fieldError?.message || (!loadingBlueprints && blueprints.length === 0 ? 'No parsed blueprints found.' : '')}</FormHelperText>
+                             </FormControl>
+                         )}
+                     />
+
 
                     <Divider sx={{ my: 3 }}/>
 
-                    {/* Section 3: Variables (Dynamic) */}
+                    {/* Section 3: Variables (Dynamic) - Render using Controller */}
                     <Typography variant="h6" gutterBottom>Configuration Variables</Typography>
                     {!selectedBlueprintId ? (
                         <Typography sx={{ fontStyle: 'italic', color: 'text.secondary', mt: 2 }}>
@@ -314,33 +324,25 @@ function ClientInstanceCreatePage() {
                         </Typography>
                     ) : !definitions ? (
                          <Typography sx={{ fontStyle: 'italic', color: 'text.secondary', mt: 2 }}>
-                              Loading or error reading variable definitions for the selected blueprint.
+                              Loading or error reading variable definitions.
                          </Typography>
                     ) : Object.keys(definitions).length === 0 ? (
                          <Typography sx={{ fontStyle: 'italic', color: 'text.secondary', mt: 2 }}>
                              Selected blueprint has no defined variables.
                          </Typography>
                     ): (
-                        // Render inputs based on definitions
                         Object.values(definitions)
-                            .sort((a, b) => a.name.localeCompare(b.name)) // Sort alphabetically
-                            .map(renderVariableInput)
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map(renderVariableInput) // This now uses Controller internally
                     )}
 
 
                      {/* Submit Button */}
                      <Box sx={{ mt: 4, position: 'relative' }}>
-                         <Button
-                             type="submit"
-                             variant="contained"
-                             disabled={loading || loadingBlueprints || !selectedBlueprintId}
-                             fullWidth
-                         >
-                             {loading ? 'Creating...' : 'Create Client Instance'}
+                         <Button type="submit" variant="contained" disabled={isSubmitting || loadingBlueprints || !selectedBlueprintId} fullWidth >
+                             {isSubmitting ? 'Creating...' : 'Create Client Instance'}
                          </Button>
-                         {loading && (
-                             <CircularProgress size={24} sx={{ position: 'absolute', top: '50%', left: '50%', marginTop: '-12px', marginLeft: '-12px' }} />
-                         )}
+                         {isSubmitting && ( <CircularProgress size={24} sx={{ position: 'absolute', top: '50%', left: '50%', marginTop: '-12px', marginLeft: '-12px' }} /> )}
                      </Box>
                 </Box>
             </Paper>

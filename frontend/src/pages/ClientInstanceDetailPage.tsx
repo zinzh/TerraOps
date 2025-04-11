@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate,Link as RouterLink } from 'react-router-dom';
+import { useForm, Controller, SubmitHandler } from 'react-hook-form'; // Import RHF
 import clientInstanceService from '../services/clientInstanceService';
 import blueprintService from '../services/blueprintService';
 import { ClientInstance, Blueprint, TfVariable, VariableDefinitions } from '../types';
 
-// MUI Components
+// MUI Components (include necessary ones)
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -23,36 +24,42 @@ import SaveIcon from '@mui/icons-material/Save'; // Or SyncIcon
 import Link from '@mui/material/Link';
 import Chip from '@mui/material/Chip';
 
+
+interface ClientInstanceEditFormData {
+    // Instance details that might be editable (optional for now)
+    // instanceName: string;
+    // instanceDescription?: string;
+    // clientRepoUrl: string;
+    // clientRepoBranch?: string;
+
+    // Variable values are the primary editable part
+    variables: Record<string, any>;
+}
+
 function ClientInstanceDetailPage() {
-    const { id } = useParams<{ id: string }>(); // Get Instance ID from URL
+    const { id } = useParams<{ id: string }>(); // Get Instance ID
     const navigate = useNavigate();
 
-    // State
+    // State for loaded data
     const [instance, setInstance] = useState<ClientInstance | null>(null);
     const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
-    const [variableValues, setVariableValues] = useState<Record<string, any>>({});
-    const [initialValues, setInitialValues] = useState<Record<string, any>>({}); // To track changes
 
+    // RHF setup - Initialize defaultValues later in useEffect
+    const { handleSubmit, control, reset, watch, formState: { errors, isSubmitting, isDirty } } = useForm<ClientInstanceEditFormData>({
+         defaultValues: { variables: {} } // Start with empty vars
+    });
+
+    // General loading/error state
     const [loading, setLoading] = useState<boolean>(true);
-    const [isSyncing, setIsSyncing] = useState<boolean>(false);
-    const [error, setError] = useState<string | null>(null);
+    const [apiError, setApiError] = useState<string | null>(null);
 
     // Fetch Instance and its Blueprint details
-    const fetchData = useCallback(async () => {
-        if (!id) {
-            setError("No client instance ID provided.");
-            setLoading(false);
-            return;
-        }
+    const fetchData = useCallback(async (instanceId: string) => {
         setLoading(true);
-        setError(null);
-        setBlueprint(null); // Reset blueprint on refetch
-        setVariableValues({});
-        setInitialValues({});
-
+        setApiError(null);
         try {
             // Fetch instance first
-            const instanceData = await clientInstanceService.getClientInstanceById(id);
+            const instanceData = await clientInstanceService.getClientInstanceById(instanceId);
             setInstance(instanceData);
 
             // Then fetch its blueprint
@@ -60,13 +67,12 @@ function ClientInstanceDetailPage() {
                 const blueprintData = await blueprintService.getBlueprintById(instanceData.blueprint_id);
                 setBlueprint(blueprintData);
 
-                // Initialize form values from instanceData.variable_values or blueprint defaults
+                // Initialize form values for RHF using reset
                 const currentValues = instanceData.variable_values || {};
                 const initialFormValues: Record<string, any> = {};
-                if (blueprintData.variables_definition) {
+                 if (blueprintData.variables_definition) {
                      const definitions = getVariableDefinitions(blueprintData) || {};
                      Object.values(definitions).forEach(variable => {
-                         // Prioritize instance value, fall back to blueprint default, then type default
                          if (currentValues.hasOwnProperty(variable.name)) {
                              initialFormValues[variable.name] = currentValues[variable.name];
                          } else if (variable.default !== undefined && variable.default !== null) {
@@ -75,73 +81,62 @@ function ClientInstanceDetailPage() {
                              initialFormValues[variable.name] = getDefaultValueForType(variable.type);
                          }
                      });
-                }
-                setVariableValues(initialFormValues);
-                setInitialValues(initialFormValues); // Store initial state for comparison
+                 }
+                 // Use reset to update the entire form state including defaultValues
+                 reset({ variables: initialFormValues });
+
             } else {
-                 setError("Instance is missing blueprint association.");
+                 setApiError("Instance is missing blueprint association.");
+                 reset({ variables: {} }); // Reset form if blueprint missing
             }
 
         } catch (err: any) {
-            setError(err.response?.data?.error || `Failed to fetch details for instance ${id}.`);
+            setApiError(err.response?.data?.error || `Failed to fetch details for instance ${instanceId}.`);
             console.error(err);
+            reset({ variables: {} }); // Reset form on error
         } finally {
             setLoading(false);
         }
-    }, [id]); // Re-fetch if ID changes
+    }, [reset]); // Include reset in dependencies
 
+    // Initial fetch
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    // --- Event Handlers ---
-    const handleVariableChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, varName: string) => {
-        const target = event.target;
-        let value: any;
-
-        if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-             value = target.checked;
-        } else if (target instanceof HTMLInputElement && target.type === 'number') {
-             value = target.value === '' ? undefined : Number(target.value);
+        if (id) {
+            fetchData(id);
         } else {
-             value = target.value;
+             setApiError("No client instance ID provided.");
+             setLoading(false);
         }
+    }, [id, fetchData]); // Depend on id and the fetchData callback
 
-        setVariableValues(prev => ({ ...prev, [varName]: value }));
-    };
 
-    const handleSaveAndSync = async () => {
+    // Form submission handler
+    const onSubmit: SubmitHandler<ClientInstanceEditFormData> = async (data) => {
         if (!id || !instance) {
-             setError("Cannot sync: Instance data not loaded.");
+             setApiError("Cannot sync: Instance data not loaded.");
              return;
         }
-        setError(null);
-        setIsSyncing(true);
+        setApiError(null);
 
-        const syncData: { variable_values: any; commit_message?: string } = {
-            variable_values: variableValues,
-            // TODO: Maybe allow custom commit message via a dialog?
-            // commit_message: "Configuration update via TerraOps UI"
+        const syncData = {
+            variable_values: data.variables, // Use the latest values from RHF
+            // commit_message: "Configuration update via TerraOps UI" // Optional commit message
         };
 
         try {
-             // Note: The backend's sync might implicitly save the values via UpdateSyncStatus.
-             // If not, we might need a separate PUT /client-instances/:id request first.
-             // Assuming /sync updates the values as well for now.
             await clientInstanceService.syncClientInstance(id, syncData);
-
-            // Success: Show feedback and refresh data to get latest sync status
+            // Success: Show feedback and refresh data to get latest sync status and reset dirty state
             alert('Sync request submitted successfully. Refreshing data...');
-            setInitialValues(variableValues); // Update initial values to match saved state
-            setTimeout(fetchData, 2000); // Refresh after delay
+            // Refetch data which will call reset() with the new values from the server
+            // This also resets the form's dirty state (isDirty becomes false)
+            fetchData(id);
 
         } catch (err: any) {
             console.error("Sync failed:", err);
             const errorMsg = err.response?.data?.details || err.response?.data?.error || 'Sync operation failed.';
-            setError(`Sync Failed: ${errorMsg}`);
-        } finally {
-            setIsSyncing(false);
+            setApiError(`Sync Failed: ${errorMsg}`);
         }
+         // isSubmitting is handled by RHF
     };
 
      // --- Helper Functions --- (Copied/adapted from Create Page)
@@ -154,7 +149,7 @@ function ClientInstanceDetailPage() {
              return bp.variables_definition as VariableDefinitions;
          } catch(e) {
               console.error("Failed to parse variables definition", e);
-              setError("Failed to read blueprint variable definitions.");
+              //setError("Failed to read blueprint variable definitions.");
               return null;
          }
      };
@@ -170,23 +165,23 @@ function ClientInstanceDetailPage() {
      };
 
      // Render form field based on variable definition (same as create page)
-     const renderVariableInput = (variable: TfVariable) => { /* ... same as create page ... */
-         const key = variable.name;
-         const currentValue = variableValues[key] ?? '';
+     const renderVariableInput = (variable: TfVariable) => {
+        const key = variable.name;
+        const variablePath = `variables.${key}` as const;
+        const typeString = JSON.stringify(variable.type).toLowerCase();
+        const isBool = typeString.includes('"bool"');
+        const isNumber = typeString.includes('"number"');
+        const isRequired = !variable.nullable && variable.default === undefined;
 
-         const typeString = JSON.stringify(variable.type).toLowerCase();
-         const isBool = typeString.includes('"bool"');
-         const isNumber = typeString.includes('"number"');
+        if (isBool) {
+             return ( <FormControlLabel key={key} control={ <Controller name={variablePath} control={control} defaultValue={false} render={({ field: { onChange, value, ref } }) => ( <Switch checked={!!value} onChange={onChange} inputRef={ref} disabled={isSubmitting || loading} /> )} /> } label={key} /> );
+        }
 
-         if (isBool) {
-              return ( <FormControlLabel control={ <Switch checked={!!currentValue} onChange={(e) => handleVariableChange(e, key)} name={key} disabled={loading || isSyncing} /> } label={variable.name} key={key} /> );
-         }
-
-         return ( <TextField key={key} margin="dense" fullWidth id={key} label={variable.name} name={key} required={!variable.nullable && variable.default === undefined} value={currentValue} onChange={(e) => handleVariableChange(e, key)} disabled={loading || isSyncing} helperText={variable.description || ''} type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'} multiline={!isNumber && !isBool && String(currentValue).length > 60} rows={!isNumber && !isBool && String(currentValue).length > 60 ? 3 : 1} InputLabelProps={{ shrink: true, }} /> );
-     };
+        return ( <Controller key={key} name={variablePath} control={control} rules={{ required: isRequired ? 'This field is required' : false }} render={({ field, fieldState: { error: fieldError } }) => ( <TextField {...field} margin="dense" fullWidth required={isRequired} label={key} error={!!fieldError} helperText={fieldError?.message || variable.description || ''} disabled={isSubmitting || loading} type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'} multiline={!isNumber && !isBool && String(field.value ?? '').length > 60} rows={!isNumber && !isBool && String(field.value ?? '').length > 60 ? 3 : 1} InputLabelProps={{ shrink: true }} /> )} /> );
+    };
 
      // Check if form has changes compared to initial load
-     const hasChanges = JSON.stringify(variableValues) !== JSON.stringify(initialValues);
+     //const hasChanges = JSON.stringify(variableValues) !== JSON.stringify(initialValues);
 
      // Helper to determine chip color based on status (copied from list page)
      const getStatusColor = (status?: string): "default" | "success" | "warning" | "error" => {
@@ -213,79 +208,80 @@ function ClientInstanceDetailPage() {
                  Back to Instances
              </Button>
 
-             {/* Display fatal error if instance loading failed */}
-             {error && !instance && ( <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> )}
+             {apiError && !instance && ( <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert> )}
 
              {instance && (
-                <>
+                 // Use RHF handleSubmit for the form
+                <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                         <Typography variant="h4" component="h1">
                              Client Instance: {instance.name}
                         </Typography>
                         <Box>
                              <Tooltip title="Refresh Data">
-                                <IconButton onClick={fetchData} color="primary" disabled={loading || isSyncing}>
+                                <IconButton onClick={() => id && fetchData(id)} color="primary" disabled={loading || isSubmitting}>
                                     <RefreshIcon />
                                 </IconButton>
                              </Tooltip>
                               <Button
+                                 type="submit" // Make this the submit button
                                  variant="contained"
                                  color="primary"
-                                 startIcon={isSyncing ? <CircularProgress size={20} color="inherit"/> :<SaveIcon />}
-                                 onClick={handleSaveAndSync}
-                                 disabled={loading || isSyncing || !hasChanges} // Disable if no changes
+                                 startIcon={isSubmitting ? <CircularProgress size={20} color="inherit"/> :<SaveIcon />}
+                                 disabled={loading || isSubmitting || !isDirty} // Disable if not dirty
                                  sx={{ ml: 1 }}
                               >
-                                 {isSyncing ? 'Syncing...' : 'Save & Sync Changes'}
+                                 {isSubmitting ? 'Syncing...' : 'Save & Sync Changes'}
                              </Button>
                         </Box>
                     </Box>
 
-                     {/* Display non-fatal errors (e.g., sync errors) */}
-                     {error && instance && ( <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert> )}
+                     {apiError && instance && ( <Alert severity="error" sx={{ mb: 2 }} onClose={() => setApiError(null)}>{apiError}</Alert> )}
 
+                    {/* Instance Details Section (Read Only For Now) */}
                     <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
                         <Typography variant="h6" gutterBottom>Instance Details</Typography>
-                        <Typography variant="body1" gutterBottom> <strong>ID:</strong> {instance.id} </Typography>
-                        <Typography variant="body1" gutterBottom> <strong>Description:</strong> {instance.description || <em>None</em>} </Typography>
-                        {blueprint && <Typography variant="body1" gutterBottom> <strong>Blueprint:</strong> {blueprint.name} ({blueprint.id}) </Typography> }
-                        <Typography variant="body1" gutterBottom>
-                             <strong>Client Repo:</strong> 
-                             <Link href={instance.client_repo_url.startsWith('http') ? instance.client_repo_url : '#'} target="_blank" rel="noopener noreferrer">{instance.client_repo_url}</Link>
-                              (Branch: {instance.client_repo_branch})
-                        </Typography>
-                        <Typography variant="body1" gutterBottom>
-                            <strong>Last Sync:</strong> 
-                            {instance.last_synced_at ? new Date(instance.last_synced_at).toLocaleString() : 'Never'}
-                            {instance.last_sync_status &&
-                                <Tooltip title={instance.last_sync_message || instance.last_sync_status}>
-                                    <Chip label={instance.last_sync_status} size="small" color={getStatusColor(instance.last_sync_status)} sx={{ ml: 1 }} />
-                                </Tooltip>
-                             }
-                        </Typography>
+                         {/* ... Display ID, Description, Blueprint Name, Repo URL, Sync Status ... */}
+                         <Typography variant="body1" gutterBottom> <strong>ID:</strong> {instance.id} </Typography>
+                         <Typography variant="body1" gutterBottom> <strong>Description:</strong> {instance.description || <em>None</em>} </Typography>
+                         {blueprint && <Typography variant="body1" gutterBottom> <strong>Blueprint:</strong> <RouterLink to={`/blueprints/${blueprint.id}`}>{blueprint.name}</RouterLink> ({blueprint.id.substring(0,8)}...) </Typography> }
+                         <Typography variant="body1" gutterBottom>
+                              <strong>Client Repo:</strong> 
+                              <Link href={instance.client_repo_url.startsWith('http') ? instance.client_repo_url : '#'} target="_blank" rel="noopener noreferrer">{instance.client_repo_url}</Link>
+                               (Branch: {instance.client_repo_branch})
+                         </Typography>
+                         <Typography variant="body1" gutterBottom>
+                             <strong>Last Sync:</strong> 
+                             {instance.last_synced_at ? new Date(instance.last_synced_at).toLocaleString() : 'Never'}
+                             {instance.last_sync_status && <Tooltip title={instance.last_sync_message || instance.last_sync_status}>
+    <Chip
+      label={instance.last_sync_status}
+      size="small"
+      color={getStatusColor(instance.last_sync_status)}
+      sx={{ ml: 1 }}
+    />
+  </Tooltip> }
+                         </Typography>
                     </Paper>
 
                     <Divider sx={{ my: 3 }} />
 
+                     {/* Editable Variables Section */}
                     <Paper elevation={2} sx={{ p: 3 }}>
                         <Typography variant="h6" gutterBottom>Configuration Variables</Typography>
-                        {loading && <CircularProgress size={20} /> } {/* Show small loader while blueprint/vars load */}
-
+                        {!blueprint && <CircularProgress size={20} /> }
                         {!loading && !blueprint && <Alert severity="warning">Blueprint details could not be loaded.</Alert>}
-
                         {!loading && blueprint && !definitions && <Alert severity="warning">Variable definitions not available for this blueprint.</Alert>}
-
-                        {!loading && definitions && Object.keys(definitions).length === 0 && (
-                             <Typography sx={{ fontStyle: 'italic', color: 'text.secondary' }}> This blueprint has no defined variables. </Typography>
-                        )}
-
+                        {!loading && definitions && Object.keys(definitions).length === 0 && ( <Typography sx={{ fontStyle: 'italic', color: 'text.secondary' }}> This blueprint has no defined variables. </Typography> )}
                         {!loading && definitions && Object.keys(definitions).length > 0 && (
                              Object.values(definitions)
                                  .sort((a, b) => a.name.localeCompare(b.name))
-                                 .map(renderVariableInput)
+                                 .map(renderVariableInput) // Renders Controller inputs
                          )}
                     </Paper>
-                </>
+
+                    {/* Submit button moved to header */}
+                </Box> // End Form
              )}
         </Box>
     );
