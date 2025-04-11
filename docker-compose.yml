@@ -15,9 +15,8 @@ services:
       # Named volume for Go build cache (optional, speeds up builds)
       # - go-build-cache:/go/pkg
     environment:
-      # Pass environment variables needed by the Go app
       - PORT=8080
-      # Database connection string (use secrets management in production)
+      # Ensure this matches your DB service and credentials
       - DATABASE_URL=postgresql://user:password@db:5432/appdb?sslmode=disable
     depends_on:
       db:
