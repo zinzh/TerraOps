@@ -32,3 +32,35 @@ BEGIN
     END IF;
 END
 $$;
+
+-- Add after the users table definition
+
+CREATE TABLE IF NOT EXISTS blueprints (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT,
+    git_repo_url VARCHAR(512) UNIQUE NOT NULL,
+    source_type VARCHAR(50) NOT NULL DEFAULT 'git', -- For future expansion (e.g., 'local', 'registry')
+    variables_definition JSONB, -- Stores parsed variables structure
+    last_parsed_at TIMESTAMPTZ,
+    parse_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Optional: Indexes
+CREATE INDEX IF NOT EXISTS idx_blueprints_name ON blueprints(name);
+CREATE INDEX IF NOT EXISTS idx_blueprints_git_repo_url ON blueprints(git_repo_url);
+
+
+-- Optional: Trigger to update updated_at timestamp automatically
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_timestamp_blueprints') THEN
+        CREATE TRIGGER set_timestamp_blueprints
+        BEFORE UPDATE ON blueprints
+        FOR EACH ROW
+        EXECUTE PROCEDURE trigger_set_timestamp();
+    END IF;
+END
+$$;

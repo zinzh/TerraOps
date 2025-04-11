@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/zinzh/TerraOps/backend/internal/auth" // Added auth import
+	"github.com/zinzh/TerraOps/backend/internal/auth"
 	"github.com/zinzh/TerraOps/backend/internal/config"
 	"github.com/zinzh/TerraOps/backend/internal/database"
 	"github.com/zinzh/TerraOps/backend/internal/handlers"
@@ -34,47 +34,58 @@ func main() {
 
 	// --- Initialize Repositories ---
 	userRepo := repository.NewUserRepository(dbpool)
+	blueprintRepo := repository.NewBlueprintRepository(dbpool) // Added
 
 	// --- Initialize Handlers ---
 	healthHandler := handlers.NewHealthHandler(dbpool)
 	userHandler := handlers.NewUserHandler(userRepo)
-	// Create Auth Handler using config values
 	authHandler := handlers.NewAuthHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo) // Added
 
 	// --- Setup Routes ---
 	api := router.Group("/api")
 	{
 		api.GET("/health", healthHandler.GetHealth)
 
-		// --- Auth Routes (No middleware needed) ---
+		// --- Auth Routes ---
 		authGroup := api.Group("/auth")
 		{
 			authGroup.POST("/login", authHandler.Login)
-			authGroup.POST("/refresh", authHandler.Refresh) // Placeholder
-			// Add /register here if preferred over /users
-			// authGroup.POST("/register", userHandler.RegisterUser)
+			authGroup.POST("/refresh", authHandler.Refresh)
 		}
 
 		// --- User Routes ---
-		// Moved registration under /users for now
 		usersGroup := api.Group("/users")
 		{
-			// Public route for registration
-			usersGroup.POST("", userHandler.RegisterUser)
+			usersGroup.POST("", userHandler.RegisterUser) // Public registration
 		}
 
-		// --- Protected Routes (Example) ---
-		// Apply AuthMiddleware to all routes within this group
-		protected := api.Group("/protected")
-		protected.Use(auth.AuthMiddleware(cfg.JWTSecret)) // Apply middleware here
+		// --- Protected Routes ---
+		// All routes below require valid JWT via AuthMiddleware
+		protected := api.Group("") // Apply middleware to the base /api group or specific subgroups
+		protected.Use(auth.AuthMiddleware(cfg.JWTSecret))
 		{
-			// Example protected endpoint
-			protected.GET("/profile", authHandler.GetUserProfile)
+			// Example Profile Route
+			protected.GET("/profile", authHandler.GetUserProfile) // Example path change for clarity
 
-			// Future protected routes (e.g., blueprint management, client config)
-			// go here
-		}
-	}
+			// --- Blueprint Routes ---
+			blueprintRoutes := protected.Group("/blueprints")
+			{
+				blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
+				blueprintRoutes.GET("", blueprintHandler.ListBlueprints)
+				blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
+				blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
+				blueprintRoutes.DELETE("/:id", blueprintHandler.DeleteBlueprint)
+				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables) // Placeholder
+			}
+
+			// --- Client Instance Routes (will go here later) ---
+			// clientInstanceRoutes := protected.Group("/client-instances")
+			// {
+			//     // ...
+			// }
+		} // End Protected Group
+	} // End API Group
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
