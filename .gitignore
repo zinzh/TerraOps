@@ -21,3 +21,6 @@ docker-compose.override.yml # Often used for local-only settings
 # IDE specific
 .vscode/
 .idea/
+
+terraops_deploy_key
+terraops_deploy_key.pub

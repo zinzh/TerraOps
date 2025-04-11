@@ -30,7 +30,9 @@ function BlueprintListPage() {
   const [blueprints, setBlueprints] = useState<Blueprint[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const navigate = useNavigate(); // For navigating to create/detail pages
+  const navigate = useNavigate(); // Make sure useNavigate is imported
+
+
 
   const fetchBlueprints = async () => {
     setLoading(true);
@@ -87,8 +89,7 @@ function BlueprintListPage() {
   }
 
   const handleCreate = () => {
-      // navigate('/blueprints/new'); // Navigate to create page later
-      alert('Navigate to Create Blueprint page (to be implemented)');
+      navigate('/blueprints/new'); 
   };
 
   const handleRowClick = (id: string) => {
