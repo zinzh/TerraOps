@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	// Import cors middleware
+	"github.com/gin-contrib/cors" // Added
 	"github.com/gin-gonic/gin"
 	"github.com/zinzh/TerraOps/backend/internal/auth"
 	"github.com/zinzh/TerraOps/backend/internal/config"
@@ -41,19 +43,41 @@ func main() {
 	// --- Initialize Repositories ---
 	userRepo := repository.NewUserRepository(dbpool)
 	blueprintRepo := repository.NewBlueprintRepository(dbpool)
-	instanceRepo := repository.NewClientInstanceRepository(dbpool) // Added
+	instanceRepo := repository.NewClientInstanceRepository(dbpool)
 
 	// --- Initialize Handlers ---
 	healthHandler := handlers.NewHealthHandler(dbpool)
 	userHandler := handlers.NewUserHandler(userRepo)
 	authHandler := handlers.NewAuthHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo, gitSvc, parserSvc)
-	// Added ClientInstanceHandler
 	instanceHandler := handlers.NewClientInstanceHandler(instanceRepo, blueprintRepo, gitSvc)
 
 	// --- Setup Routes ---
 	// gin.SetMode(gin.ReleaseMode)
-	router := gin.Default()
+	router := gin.Default() // Includes Logger and Recovery
+
+	// --- Configure CORS Middleware --- // Added Section
+	// Adjust configuration based on your needs.
+	// For development, allowing localhost:3000 is common.
+	// For production, list specific allowed origins.
+	corsConfig := cors.Config{
+		// Allow specific origins - replace with your frontend URL in production
+		AllowOrigins: []string{"http://localhost:3000"},
+		// Allow specific methods
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		// Allow specific headers
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		// Expose headers (optional, needed if frontend needs to read specific headers)
+		// ExposeHeaders: []string{"Content-Length"},
+		// Allow credentials (cookies, authorization headers)
+		AllowCredentials: true,
+		// MaxAge indicates how long the results of a preflight request can be cached
+		MaxAge: 12 * time.Hour,
+	}
+	router.Use(cors.New(corsConfig))
+	// --- End CORS Configuration ---
+
+	// --- API Route Grouping ---
 	api := router.Group("/api")
 	{
 		api.GET("/health", healthHandler.GetHealth)
@@ -67,13 +91,12 @@ func main() {
 			usersGroup.POST("", userHandler.RegisterUser)
 		}
 
-		// --- Protected Routes ---
-		protected := api.Group("")
+		// Protected Routes (Middleware applied below)
+		protected := api.Group("") // Grouping for middleware application
 		protected.Use(auth.AuthMiddleware(cfg.JWTSecret))
 		{
 			protected.GET("/profile", authHandler.GetUserProfile)
 
-			// --- Blueprint Routes ---
 			blueprintRoutes := protected.Group("/blueprints")
 			{
 				blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
@@ -84,7 +107,6 @@ func main() {
 				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables)
 			}
 
-			// --- Client Instance Routes --- // Added Section
 			instanceRoutes := protected.Group("/client-instances")
 			{
 				instanceRoutes.POST("", instanceHandler.CreateClientInstance)
@@ -92,9 +114,8 @@ func main() {
 				instanceRoutes.GET("/:id", instanceHandler.GetClientInstance)
 				instanceRoutes.PUT("/:id", instanceHandler.UpdateClientInstance)
 				instanceRoutes.DELETE("/:id", instanceHandler.DeleteClientInstance)
-				instanceRoutes.POST("/:id/sync", instanceHandler.SyncClientInstance) // Placeholder
+				instanceRoutes.POST("/:id/sync", instanceHandler.SyncClientInstance)
 			}
-
 		} // End Protected Group
 	} // End API Group
 
@@ -104,13 +125,14 @@ func main() {
 		Addr:    ":" + cfg.Port,
 		Handler: router,
 	}
-	go func() {
+	// ... (rest of main) ...
+	go func() { // Added go routine from previous steps
 		log.Printf("Server starting on port %s\n", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Could not start server: %s\n", err)
 		}
 	}()
-	quit := make(chan os.Signal, 1)
+	quit := make(chan os.Signal, 1) // Added quit channel from previous steps
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
