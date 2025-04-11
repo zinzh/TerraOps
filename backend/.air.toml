@@ -1,0 +1,26 @@
+# Config file for Air hot-reloader (https://github.com/cosmtrek/air)
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Command to build your Go app
+cmd = "go build -o ./tmp/main ."
+# Binary to run
+bin = "./tmp/main"
+# Watch these file extensions
+include_ext = ["go", "tpl", "tmpl", "html"]
+# Ignore these folders
+exclude_dir = ["assets", "tmp", "vendor"]
+# Watch these directories
+include_dir = []
+# Log name
+log = "air_errors.log"
+# Delay before restarting
+delay = 1000 # ms
+
+[log]
+time = true
+
+[misc]
+# Delete tmp directory on exit
+clean_on_exit = true

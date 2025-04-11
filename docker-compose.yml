@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Backend Service (Go API)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tfvars_manager_backend
+    ports:
+      - "8080:8080" # Map host port 8080 to container port 8080
+    volumes:
+      # Mount source code for hot-reloading (syncs changes from host to container)
+      - ./backend:/app
+      # Named volume for Go build cache (optional, speeds up builds)
+      # - go-build-cache:/go/pkg
+    environment:
+      # Pass environment variables needed by the Go app
+      - PORT=8080
+      # Database connection string (use secrets management in production)
+      - DATABASE_URL=postgresql://user:password@db:5432/appdb?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy # Wait for DB to be ready
+    command: ["air", "-c", ".air.toml"] # Override CMD for development hot-reloading
+    networks:
+      - app-network
+
+  # Frontend Service (React App)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development # <--- Add this line to target the 'development' stage
+    container_name: tfvars_manager_frontend
+    ports:
+      - "3000:3000" # Map host port 3000 to container port 3000 (React Dev Server)
+    volumes:
+      # Mount source code for hot-reloading
+      - ./frontend:/app
+      # Use a named volume for node_modules to persist them
+      - node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:8080/api
+      # Ensure react-scripts uses polling if necessary in Docker
+      - WATCHPACK_POLLING=true # Or CHOKIDAR_USEPOLLING=true for older CRA versions
+    # command: ["npm", "start"] # <--- No longer needed, CMD is in Dockerfile 'development' stage
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  # Database Service (PostgreSQL)
+  db:
+    image: postgres:15-alpine # Use a specific version
+    container_name: tfvars_manager_db
+    ports:
+      - "5433:5432" # Map host port 5433 to container port 5432 (avoids conflict)
+    environment:
+      POSTGRES_USER: user # Change these in production
+      POSTGRES_PASSWORD: password # Use .env file or secrets management
+      POSTGRES_DB: appdb
+    volumes:
+      # Persist database data using a named volume
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+# Define named volumes
+volumes:
+  postgres-data:
+  node_modules:
+  # go-build-cache:
+
+# Define bridge network for services to communicate
+networks:
+  app-network:
+    driver: bridge
