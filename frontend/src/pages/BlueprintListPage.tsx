@@ -93,9 +93,9 @@ function BlueprintListPage() {
   };
 
   const handleRowClick = (id: string) => {
-      // navigate(`/blueprints/${id}`); // Navigate to detail page later
-      alert(`Navigate to Detail page for blueprint ${id} (to be implemented)`);
-  }
+    navigate(`/blueprints/${id}`); // Navigate to detail page
+    // alert(`Navigate to Detail page for blueprint ${id} (to be implemented)`); // Remove alert
+}
 
 
   return (

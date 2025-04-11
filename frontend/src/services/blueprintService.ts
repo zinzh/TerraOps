@@ -22,8 +22,13 @@ const listBlueprints = async (): Promise<Blueprint[]> => {
 
 // Add create, getById, update, delete, parse functions later
 const getBlueprintById = async (id: string): Promise<Blueprint> => {
-    const response = await apiClient.get<Blueprint>(`/blueprints/${id}`);
-    return response.data;
+    try {
+        const response = await apiClient.get<Blueprint>(`/blueprints/${id}`);
+        return response.data;
+    } catch (error: any) {
+         console.error(`Error fetching blueprint ${id}:`, error);
+         throw error; // Re-throw to be caught by the component
+    }
 }
 
 const parseBlueprint = async (id: string): Promise<any> => { // Return type might be more specific

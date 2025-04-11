@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import BlueprintListPage from './pages/BlueprintListPage';
 import AppLayout from './components/AppLayout'; // Import the layout
 import BlueprintCreatePage from './pages/BlueprintCreatePage';
+import BlueprintDetailPage from './pages/BlueprintDetailPage';
 
 // MUI Theme Provider
 import { ThemeProvider, createTheme } from '@mui/material/styles';
@@ -46,6 +47,10 @@ function App() {
                  </AppLayout>
                </ProtectedRoute>
              }
+           />
+            <Route
+             path="/blueprints/:id" // Detail page  <<-- ADD THIS ROUTE
+             element={<ProtectedRoute><AppLayout><BlueprintDetailPage /></AppLayout></ProtectedRoute>}
            />
            {/* Add detail route later */}
            {/* <Route path="/blueprints/:id" element={...} /> */}
