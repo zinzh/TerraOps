@@ -13,7 +13,9 @@ import (
 	"github.com/zinzh/TerraOps/backend/internal/auth"
 	"github.com/zinzh/TerraOps/backend/internal/config"
 	"github.com/zinzh/TerraOps/backend/internal/database"
+	"github.com/zinzh/TerraOps/backend/internal/git" // Added
 	"github.com/zinzh/TerraOps/backend/internal/handlers"
+	"github.com/zinzh/TerraOps/backend/internal/parser" // Added
 	"github.com/zinzh/TerraOps/backend/internal/repository"
 )
 
@@ -29,46 +31,43 @@ func main() {
 	}
 	defer dbpool.Close()
 
-	// gin.SetMode(gin.ReleaseMode)
-	router := gin.Default()
+	// --- Initialize Services --- // Added Section
+	gitSvc, err := git.NewService("") // Use default temp dir path
+	if err != nil {
+		log.Fatalf("Failed to initialize Git service: %v", err)
+	}
+	parserSvc := parser.NewHCLParserService()
 
 	// --- Initialize Repositories ---
 	userRepo := repository.NewUserRepository(dbpool)
-	blueprintRepo := repository.NewBlueprintRepository(dbpool) // Added
+	blueprintRepo := repository.NewBlueprintRepository(dbpool)
 
-	// --- Initialize Handlers ---
+	// --- Initialize Handlers (Inject Services) ---
 	healthHandler := handlers.NewHealthHandler(dbpool)
 	userHandler := handlers.NewUserHandler(userRepo)
 	authHandler := handlers.NewAuthHandler(userRepo, cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
-	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo) // Added
+	// Inject services into BlueprintHandler
+	blueprintHandler := handlers.NewBlueprintHandler(blueprintRepo, gitSvc, parserSvc) // Updated
 
 	// --- Setup Routes ---
+	// gin.SetMode(gin.ReleaseMode)
+	router := gin.Default()
 	api := router.Group("/api")
 	{
 		api.GET("/health", healthHandler.GetHealth)
-
-		// --- Auth Routes ---
 		authGroup := api.Group("/auth")
 		{
 			authGroup.POST("/login", authHandler.Login)
 			authGroup.POST("/refresh", authHandler.Refresh)
 		}
-
-		// --- User Routes ---
 		usersGroup := api.Group("/users")
 		{
-			usersGroup.POST("", userHandler.RegisterUser) // Public registration
+			usersGroup.POST("", userHandler.RegisterUser)
 		}
-
-		// --- Protected Routes ---
-		// All routes below require valid JWT via AuthMiddleware
-		protected := api.Group("") // Apply middleware to the base /api group or specific subgroups
+		protected := api.Group("")
 		protected.Use(auth.AuthMiddleware(cfg.JWTSecret))
 		{
-			// Example Profile Route
-			protected.GET("/profile", authHandler.GetUserProfile) // Example path change for clarity
-
-			// --- Blueprint Routes ---
+			protected.GET("/profile", authHandler.GetUserProfile)
 			blueprintRoutes := protected.Group("/blueprints")
 			{
 				blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
@@ -76,39 +75,30 @@ func main() {
 				blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
 				blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
 				blueprintRoutes.DELETE("/:id", blueprintHandler.DeleteBlueprint)
-				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables) // Placeholder
+				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables) // Uses the real implementation now
 			}
+		}
+	}
 
-			// --- Client Instance Routes (will go here later) ---
-			// clientInstanceRoutes := protected.Group("/client-instances")
-			// {
-			//     // ...
-			// }
-		} // End Protected Group
-	} // End API Group
-
+	// --- Start Server & Graceful Shutdown ---
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: router,
 	}
-
 	go func() {
 		log.Printf("Server starting on port %s\n", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Could not start server: %s\n", err)
 		}
 	}()
-
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
-
 	log.Println("Server exiting")
 }
