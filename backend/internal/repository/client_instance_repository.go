@@ -111,15 +111,18 @@ func (r *ClientInstanceRepository) GetClientInstanceByID(ctx context.Context, id
 	return &ci, nil
 }
 
-func (r *ClientInstanceRepository) ListClientInstances(ctx context.Context) ([]*models.ClientInstance, error) {
+func (r *ClientInstanceRepository) ListClientInstances(ctx context.Context) ([]*ClientInstanceListItem, error) {
+	// Updated query with JOIN
 	query := `
 		SELECT
-			id, name, description, blueprint_id, variable_values,
-			client_repo_url, client_repo_branch,
-			last_sync_status, last_sync_message, last_synced_at,
-			created_at, updated_at
-		FROM client_instances
-		ORDER BY name ASC`
+			ci.id, ci.name, ci.description, ci.blueprint_id, ci.variable_values,
+			ci.client_repo_url, ci.client_repo_branch,
+			ci.last_sync_status, ci.last_sync_message, ci.last_synced_at,
+			ci.created_at, ci.updated_at,
+			b.name AS blueprint_name -- Select blueprint name
+		FROM client_instances ci
+		LEFT JOIN blueprints b ON ci.blueprint_id = b.id -- Join with blueprints
+		ORDER BY ci.name ASC`
 
 	rows, err := r.DB.Query(ctx, query)
 	if err != nil {
@@ -128,32 +131,26 @@ func (r *ClientInstanceRepository) ListClientInstances(ctx context.Context) ([]*
 	}
 	defer rows.Close()
 
-	instances := []*models.ClientInstance{}
+	instances := []*ClientInstanceListItem{} // Use the new struct type
 	for rows.Next() {
-		var ci models.ClientInstance
+		var item ClientInstanceListItem // Use the new struct type
+		// Scan into the embedded struct and the new field
 		err := rows.Scan(
-			&ci.ID,
-			&ci.Name,
-			&ci.Description,
-			&ci.BlueprintID,
-			&ci.VariableValues,
-			&ci.ClientRepoURL,
-			&ci.ClientRepoBranch,
-			&ci.LastSyncStatus,
-			&ci.LastSyncMessage,
-			&ci.LastSyncedAt,
-			&ci.CreatedAt,
-			&ci.UpdatedAt,
+			&item.ID, &item.Name, &item.Description, &item.BlueprintID, &item.VariableValues,
+			&item.ClientRepoURL, &item.ClientRepoBranch,
+			&item.LastSyncStatus, &item.LastSyncMessage, &item.LastSyncedAt,
+			&item.CreatedAt, &item.UpdatedAt,
+			&item.BlueprintName, // Scan the blueprint name
 		)
 		if err != nil {
-			log.Printf("Error scanning client instance row: %v\n", err)
+			log.Printf("Error scanning client instance list row: %v\n", err)
 			return nil, err
 		}
-		instances = append(instances, &ci)
+		instances = append(instances, &item)
 	}
 
 	if err = rows.Err(); err != nil {
-		log.Printf("Error iterating client instance rows: %v\n", err)
+		log.Printf("Error iterating client instance list rows: %v\n", err)
 		return nil, err
 	}
 
@@ -236,4 +233,9 @@ func (r *ClientInstanceRepository) UpdateSyncStatus(ctx context.Context, id uuid
 		return ErrClientInstanceNotFound
 	}
 	return nil
+}
+
+type ClientInstanceListItem struct {
+	models.ClientInstance        // Embed base fields
+	BlueprintName         string `json:"blueprint_name"` // Add blueprint name
 }

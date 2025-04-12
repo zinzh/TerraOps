@@ -112,6 +112,7 @@ func (h *ClientInstanceHandler) CreateClientInstance(c *gin.Context) {
 
 // ListClientInstances handles GET /api/client-instances
 func (h *ClientInstanceHandler) ListClientInstances(c *gin.Context) {
+	// Call the updated repository function which returns []*ClientInstanceListItem
 	instances, err := h.InstanceRepo.ListClientInstances(c.Request.Context())
 	if err != nil {
 		log.Printf("Error listing client instances: %v\n", err)
@@ -120,10 +121,12 @@ func (h *ClientInstanceHandler) ListClientInstances(c *gin.Context) {
 	}
 
 	if instances == nil {
-		instances = []*models.ClientInstance{}
+		// Return empty array instead of null
+		c.JSON(http.StatusOK, []*repository.ClientInstanceListItem{})
+	} else {
+		// Return the list including the blueprint name
+		c.JSON(http.StatusOK, instances)
 	}
-
-	c.JSON(http.StatusOK, instances)
 }
 
 // GetClientInstance handles GET /api/client-instances/:id
@@ -206,13 +209,14 @@ func (h *ClientInstanceHandler) DeleteClientInstance(c *gin.Context) {
 		if errors.Is(err, repository.ErrClientInstanceNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
+			// Handle other potential errors, like FK constraints if they were different
 			log.Printf("Error deleting client instance ID %s: %v\n", idStr, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete client instance"})
 		}
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	c.Status(http.StatusNoContent) // 204 No Content is standard
 }
 
 // SyncClientInstance handles POST /api/client-instances/:id/sync
