@@ -25,11 +25,11 @@ type Blueprint struct {
 type CreateBlueprintRequest struct {
 	Name        string  `json:"name" binding:"required,min=3,max=100"`
 	Description *string `json:"description,omitempty"`
-	GitRepoURL  string  `json:"git_repo_url" binding:"required,url"`
+	GitRepoURL  string  `json:"git_repo_url" binding:"required"`
 }
 
 type UpdateBlueprintRequest struct {
 	Name        *string `json:"name,omitempty" binding:"omitempty,min=3,max=100"`
 	Description *string `json:"description,omitempty"`
-	GitRepoURL  *string `json:"git_repo_url,omitempty" binding:"omitempty,url"`
+	GitRepoURL  *string `json:"git_repo_url,omitempty" binding:"omitempty"`
 }

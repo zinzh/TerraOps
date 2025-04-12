@@ -44,13 +44,24 @@ const getCurrentUser = (): User | null => {
 const isAuthenticated = (): boolean => {
   return !!localStorage.getItem('accessToken');
 };
+const isAdmin = (): boolean => {
+  const user = getCurrentUser();
+  return user?.role === 'admin'; // Use constant from models later if shared
+};
 
+const isUser = (): boolean => {
+  const user = getCurrentUser();
+  // Admins are also considered 'users' in terms of base permissions
+  return user?.role === 'user' || user?.role === 'admin';
+};
 
 const authService = {
   login,
   logout,
   getCurrentUser,
   isAuthenticated,
+  isAdmin, 
+  isUser,  
 };
 
 export default authService;

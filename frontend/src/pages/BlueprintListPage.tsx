@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // For navigation later
 import blueprintService from '../services/blueprintService';
 import { Blueprint } from '../types'; // Import type
-
+import authService from '../services/authService'; 
 // MUI Components
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -33,7 +33,7 @@ function BlueprintListPage() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate(); // Make sure useNavigate is imported
   const { showSnackbar } = useSnackbar();
-
+  const canCreate = authService.isAdmin();
 
 
   const fetchBlueprints = async () => {
@@ -117,14 +117,14 @@ function BlueprintListPage() {
                     <RefreshIcon />
                 </IconButton>
             </Tooltip>
-            <Button
+            {canCreate && (<Button
              variant="contained"
              startIcon={<AddIcon />}
              onClick={handleCreate}
              sx={{ ml: 1 }} // Add some margin
             >
               Create Blueprint
-            </Button>
+            </Button>)}
         </Box>
       </Box>
 
@@ -178,7 +178,7 @@ function BlueprintListPage() {
                     </TableCell>
                     <TableCell align="right">
                         {/* Stop propagation prevents row click when clicking icon buttons */}
-                        <Tooltip title="Parse Variables">
+                        {canCreate && <Tooltip title="Parse Variables">
                            <IconButton
                              aria-label="parse"
                              size="small"
@@ -187,8 +187,8 @@ function BlueprintListPage() {
                            >
                                 <PlayArrowIcon fontSize="inherit" />
                            </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete Blueprint">
+                        </Tooltip>}
+                        {canCreate && <Tooltip title="Delete Blueprint">
                             <IconButton
                               aria-label="delete"
                               size="small"
@@ -197,7 +197,7 @@ function BlueprintListPage() {
                             >
                                 <DeleteIcon fontSize="inherit" />
                             </IconButton>
-                        </Tooltip>
+                        </Tooltip>}
                     </TableCell>
                   </TableRow>
                 ))

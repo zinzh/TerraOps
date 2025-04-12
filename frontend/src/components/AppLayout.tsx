@@ -31,6 +31,7 @@ function AppLayout({ children }: AppLayoutProps) {
       textDecoration: 'underline',
       fontWeight: 'bold',
   };
+  const canManageBlueprints = authService.isAdmin(); 
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -53,6 +54,7 @@ function AppLayout({ children }: AppLayoutProps) {
             >
                 <Typography variant="button">Client Instances</Typography>
              </NavLink>
+             {canManageBlueprints && (
              <NavLink
                  to="/blueprints"
                  style={({ isActive }) => ({
@@ -62,7 +64,7 @@ function AppLayout({ children }: AppLayoutProps) {
                  })}
              >
                  <Typography variant="button">Blueprints</Typography>
-             </NavLink>
+             </NavLink>)}
              {/* Add more top-level navigation links here */}
           </Stack>
 

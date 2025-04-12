@@ -23,9 +23,13 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 }
 
 func (r *UserRepository) CreateUser(ctx context.Context, user *models.User) (uuid.UUID, error) {
+	if user.Role == "" {
+		user.Role = models.RoleUser
+	}
+
 	query := `
-		INSERT INTO users (email, password_hash, first_name, last_name)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (email, password_hash, first_name, last_name, role) -- Added role
+		VALUES ($1, $2, $3, $4, $5) 
 		RETURNING id`
 
 	var userID uuid.UUID
@@ -34,6 +38,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, user *models.User) (uui
 		user.PasswordHash,
 		user.FirstName,
 		user.LastName,
+		user.Role, // Pass role
 	).Scan(&userID)
 
 	if err != nil {
@@ -53,7 +58,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, user *models.User) (uui
 
 func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, first_name, last_name, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, role, created_at, updated_at -- Added role
 		FROM users
 		WHERE email = $1`
 
@@ -64,6 +69,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.Role, // Scan role
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -81,7 +87,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 
 func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, first_name, last_name, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, role, created_at, updated_at -- Added role
 		FROM users
 		WHERE id = $1`
 
@@ -92,6 +98,7 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*models
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.Role, // Scan role
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)

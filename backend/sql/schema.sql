@@ -6,9 +6,12 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(100),
     last_name VARCHAR(100),
+    role VARCHAR(50) NOT NULL DEFAULT 'user', -- <<-- ADDED role with default
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL DEFAULT 'user';
 
 -- Optional: Index on email for faster lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);

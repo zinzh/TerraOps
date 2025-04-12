@@ -4,6 +4,7 @@ export interface User {
     email: string;
     first_name?: string;
     last_name?: string;
+    role: string; 
     created_at: string; // Timestamps are strings (ISO 8601 format)
     updated_at: string;
   }

@@ -18,6 +18,7 @@ import (
 	"github.com/zinzh/TerraOps/backend/internal/git"
 	"github.com/zinzh/TerraOps/backend/internal/handlers"
 	"github.com/zinzh/TerraOps/backend/internal/maintf"
+	"github.com/zinzh/TerraOps/backend/internal/models"
 	"github.com/zinzh/TerraOps/backend/internal/parser"
 	"github.com/zinzh/TerraOps/backend/internal/repository"
 	"github.com/zinzh/TerraOps/backend/internal/tfvars"
@@ -95,6 +96,7 @@ func main() {
 	// --- API Route Grouping ---
 	api := router.Group("/api")
 	{
+		// --- Public Routes ---
 		api.GET("/health", healthHandler.GetHealth)
 		authGroup := api.Group("/auth")
 		{
@@ -103,36 +105,51 @@ func main() {
 		}
 		usersGroup := api.Group("/users")
 		{
+			// Allow anyone to register (for now)
 			usersGroup.POST("", userHandler.RegisterUser)
 		}
 
-		// Protected Routes (Middleware applied below)
-		protected := api.Group("") // Grouping for middleware application
-		protected.Use(auth.AuthMiddleware(cfg.JWTSecret))
+		// --- Protected Routes (Require Authentication) ---
+		protected := api.Group("")
+		protected.Use(auth.AuthMiddleware(cfg.JWTSecret)) // Apply JWT auth first
 		{
-			protected.GET("/profile", authHandler.GetUserProfile)
+			protected.GET("/profile", authHandler.GetUserProfile) // Example accessible by any logged-in user
 
-			blueprintRoutes := protected.Group("/blueprints")
+			// --- Routes requiring 'admin' role ---
+			adminRoutes := protected.Group("")
+			adminRoutes.Use(auth.RoleMiddleware(models.RoleAdmin)) // Apply Admin Role Check
 			{
-				blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
-				blueprintRoutes.GET("", blueprintHandler.ListBlueprints)
-				blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
-				blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
-				blueprintRoutes.DELETE("/:id", blueprintHandler.DeleteBlueprint)
-				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables)
+				// Blueprint Management requires Admin
+				blueprintRoutes := adminRoutes.Group("/blueprints")
+				{
+					blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
+					blueprintRoutes.GET("", blueprintHandler.ListBlueprints) // Keep list public for selection? Or move? Decide based on UX. Let's assume admin only for now.
+					blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
+					blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
+					blueprintRoutes.DELETE("/:id", blueprintHandler.DeleteBlueprint)
+					blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables)
+				}
+				// Add User management routes here later (also admin only)
 			}
 
+			// --- Routes accessible by authenticated 'user' (or 'admin') ---
+			// Client Instance Management can be done by users for instances they manage
+			// (Later add ownership checks, for now any logged-in user)
 			instanceRoutes := protected.Group("/client-instances")
+			// No additional RoleMiddleware needed here if AuthMiddleware is sufficient
+			// If you need to explicitly ensure ONLY 'user' or 'admin', add RoleMiddleware(models.RoleUser)
+			// But typically admins can also do user tasks.
 			{
 				instanceRoutes.POST("", instanceHandler.CreateClientInstance)
 				instanceRoutes.GET("", instanceHandler.ListClientInstances)
 				instanceRoutes.GET("/:id", instanceHandler.GetClientInstance)
-				instanceRoutes.PUT("/:id", instanceHandler.UpdateClientInstance)
+				instanceRoutes.PUT("/:id", instanceHandler.UpdateClientInstance) // Maybe restrict update later?
 				instanceRoutes.DELETE("/:id", instanceHandler.DeleteClientInstance)
 				instanceRoutes.POST("/:id/sync", instanceHandler.SyncClientInstance)
 			}
+
 		} // End Protected Group
-	} // End API Group
+	}
 
 	// --- Start Server & Graceful Shutdown ---
 	// ... (server start/shutdown logic remains the same) ...

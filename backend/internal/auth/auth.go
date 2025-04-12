@@ -30,6 +30,7 @@ type LoginResponse struct {
 type Claims struct {
 	UserID uuid.UUID `json:"user_id"`
 	Email  string    `json:"email"`
+	Role   string    `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -55,12 +56,13 @@ func generateToken(user *models.User, secret string, ttl time.Duration) (string,
 	claims := &Claims{
 		UserID: user.ID,
 		Email:  user.Email,
+		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    "my-tfvars-manager", // Optional: identify the issuer
-			Subject:   user.ID.String(),    // Optional: identify the subject
+			Issuer:    "my-tfvars-manager",
+			Subject:   user.ID.String(),
 		},
 	}
 
@@ -142,4 +144,31 @@ func GetCurrentUser(c *gin.Context) (*Claims, bool) {
 	}
 
 	return userClaims, true
+}
+func RoleMiddleware(requiredRole string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, exists := GetCurrentUser(c) // Get claims stored by AuthMiddleware
+		if !exists {
+			// This should have been caught by AuthMiddleware already
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "User claims not found"})
+			return
+		}
+
+		// Check if user has the required role (or if admin, allow all)
+		// NOTE: This logic assumes 'admin' can do everything 'user' can.
+		// Adjust if you need more granular checks (e.g., user cannot do admin tasks).
+		hasPermission := false
+		if claims.Role == models.RoleAdmin { // Admin has all permissions
+			hasPermission = true
+		} else if claims.Role == requiredRole { // User has the specific required role
+			hasPermission = true
+		}
+
+		if !hasPermission {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("Forbidden: Requires '%s' role or higher", requiredRole)})
+			return
+		}
+
+		c.Next()
+	}
 }
