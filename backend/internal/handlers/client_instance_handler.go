@@ -75,8 +75,10 @@ func (h *ClientInstanceHandler) CreateClientInstance(c *gin.Context) {
 		Name:             req.Name,
 		Description:      req.Description,
 		BlueprintID:      req.BlueprintID,
+		BlueprintVersion: req.BlueprintVersion, // Assign from request
 		ClientRepoURL:    req.ClientRepoURL,
 		ClientRepoBranch: branch,
+		VariableValues:   json.RawMessage("{}"), // Default if not provided
 	}
 	// Handle optional initial variable values
 	if req.VariableValues != nil {
@@ -167,7 +169,7 @@ func (h *ClientInstanceHandler) UpdateClientInstance(c *gin.Context) {
 		return
 	}
 
-	if req.Name == nil && req.Description == nil && req.VariableValues == nil && req.ClientRepoURL == nil && req.ClientRepoBranch == nil {
+	if req.Name == nil && req.Description == nil && req.VariableValues == nil && req.ClientRepoURL == nil && req.ClientRepoBranch == nil && req.BlueprintVersion == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No update fields provided"})
 		return
 	}
@@ -244,16 +246,16 @@ func (h *ClientInstanceHandler) SyncClientInstance(c *gin.Context) {
 
 	// Use a helper function or run steps directly
 	err = func() error { // Use closure to handle errors and defer cleanup easily
-		// 1. Get Client Instance details
+		// 1. Get Client Instance details (now includes BlueprintVersion)
 		instance, err := h.InstanceRepo.GetClientInstanceByID(c.Request.Context(), instanceID)
 		if err != nil {
 			return fmt.Errorf("failed to get client instance details: %w", err)
 		}
 
-		// 2. Get Blueprint details (need repo URL)
+		// 2. Get Blueprint details
 		blueprint, err := h.BlueprintRepo.GetBlueprintByID(c.Request.Context(), instance.BlueprintID)
 		if err != nil {
-			return fmt.Errorf("failed to get blueprint details (ID: %s): %w", instance.BlueprintID, err)
+			return fmt.Errorf("failed to get blueprint details: %w", err)
 		}
 
 		// Define repo dir name based on instance ID
@@ -276,8 +278,8 @@ func (h *ClientInstanceHandler) SyncClientInstance(c *gin.Context) {
 
 		// 4. Generate main.tf content
 		// Use blueprint name for module block name (sanitize if needed)
-		moduleName := blueprint.Name                                                      // TODO: Sanitize name for HCL identifier if needed
-		mainTfContent, err := h.MainTfGen.Generate(moduleName, blueprint.GitRepoURL, nil) // Add version later if needed
+		moduleName := blueprint.Name
+		mainTfContent, err := h.MainTfGen.Generate(moduleName, blueprint.GitRepoURL, instance.BlueprintVersion) // Pass version
 		if err != nil {
 			return fmt.Errorf("failed to generate main.tf content: %w", err)
 		}

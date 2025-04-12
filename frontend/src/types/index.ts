@@ -27,15 +27,16 @@ export interface User {
     name: string;
     description?: string;
     blueprint_id: string;
-    variable_values?: any; // Store as raw JSON object for now
+    blueprint_version?: string; // <<-- ADD THIS LINE
+    variable_values?: any;
     client_repo_url: string;
     client_repo_branch: string;
     last_sync_status?: string;
     last_sync_message?: string;
-    last_synced_at?: string; // ISO String
-    created_at: string;     // ISO String
-    updated_at: string;     // ISO String
-    blueprint_name?: string; // Added
+    last_synced_at?: string;
+    created_at: string;
+    updated_at: string;
+    blueprint_name?: string;
   }
   
   // Type for the parsed variable definition within a Blueprint

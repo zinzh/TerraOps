@@ -36,6 +36,7 @@ interface ClientInstanceEditFormData {
     // clientRepoBranch?: string;
 
     // Variable values are the primary editable part
+    blueprintVersion?: string; // Add field
     variables: Record<string, any>;
 }
 
@@ -51,7 +52,7 @@ function ClientInstanceDetailPage() {
 
     // RHF setup - Initialize defaultValues later in useEffect
     const { handleSubmit, control, reset, watch, formState: { errors, isSubmitting, isDirty } } = useForm<ClientInstanceEditFormData>({
-         defaultValues: { variables: {} } // Start with empty vars
+        defaultValues: { blueprintVersion: '', variables: {} }
     });
 
     // General loading/error state
@@ -90,17 +91,20 @@ function ClientInstanceDetailPage() {
                      });
                  }
                  // Use reset to update the entire form state including defaultValues
-                 reset({ variables: initialFormValues });
+                 reset({
+                    variables: initialFormValues,
+                    blueprintVersion: instanceData.blueprint_version || '' // Populate from instance
+                });
 
             } else {
                  setApiError("Instance is missing blueprint association.");
-                 reset({ variables: {} }); // Reset form if blueprint missing
+                 reset({ blueprintVersion: '', variables: {} });
             }
 
         } catch (err: any) {
             setApiError(err.response?.data?.error || `Failed to fetch details for instance ${instanceId}.`);
             console.error(err);
-            reset({ variables: {} }); // Reset form on error
+            reset({ blueprintVersion: '', variables: {} });
         } finally {
             setLoading(false);
         }
@@ -431,6 +435,8 @@ function ClientInstanceDetailPage() {
                              <strong>Last Sync:</strong> 
                              {instance.last_synced_at ? new Date(instance.last_synced_at).toLocaleString() : 'Never'}
                              {instance.last_sync_status && <Tooltip title={instance.last_sync_message || instance.last_sync_status}>
+                        
+                        
     <Chip
       label={instance.last_sync_status}
       size="small"
@@ -439,13 +445,31 @@ function ClientInstanceDetailPage() {
     />
   </Tooltip> }
                          </Typography>
+                         <Typography variant="body1" gutterBottom>
+                            <strong>Blueprint Version:</strong> {instance.blueprint_version || <em>Default Branch</em>}
+                        </Typography>
                     </Paper>
 
                     <Divider sx={{ my: 3 }} />
+                    
 
                      {/* Editable Variables Section */}
                     <Paper elevation={2} sx={{ p: 3 }}>
                         <Typography variant="h6" gutterBottom>Configuration Variables</Typography>
+                        <Controller
+                            name="blueprintVersion"
+                            control={control}
+                            render={({ field }) => (
+                                <TextField {...field} margin="normal" fullWidth
+                                    id="blueprintVersion" label="Blueprint Version Override (Optional)"
+                                    helperText="Enter Git branch, tag, or commit SHA (leave empty for default)"
+                                    disabled={isSubmitting || loading} // Use loading state here
+                                    sx={{ mb: 2 }} // Add some margin
+                                />
+                            )}
+                        />
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle1" gutterBottom sx={{mt: 1}}>Variables</Typography>
                         {!blueprint && <CircularProgress size={20} /> }
                         {!loading && !blueprint && <Alert severity="warning">Blueprint details could not be loaded.</Alert>}
                         {!loading && blueprint && !definitions && <Alert severity="warning">Variable definitions not available for this blueprint.</Alert>}

@@ -55,10 +55,10 @@ func (r *ClientInstanceRepository) handleClientInstancePgError(err error) error 
 func (r *ClientInstanceRepository) CreateClientInstance(ctx context.Context, ci *models.ClientInstance) (uuid.UUID, error) {
 	query := `
 		INSERT INTO client_instances (
-			name, description, blueprint_id, variable_values,
-			client_repo_url, client_repo_branch
+			name, description, blueprint_id, blueprint_version, -- Added blueprint_version
+			variable_values, client_repo_url, client_repo_branch
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) -- Incremented placeholders
 		RETURNING id`
 
 	var instanceID uuid.UUID
@@ -66,23 +66,23 @@ func (r *ClientInstanceRepository) CreateClientInstance(ctx context.Context, ci 
 		ci.Name,
 		ci.Description,
 		ci.BlueprintID,
-		ci.VariableValues, // Can be nil initially
+		ci.BlueprintVersion, // Pass the new field
+		ci.VariableValues,
 		ci.ClientRepoURL,
 		ci.ClientRepoBranch,
 	).Scan(&instanceID)
-
+	// ... error handling ...
 	if err != nil {
 		return uuid.Nil, r.handleClientInstancePgError(err)
 	}
-
 	return instanceID, nil
 }
 
 func (r *ClientInstanceRepository) GetClientInstanceByID(ctx context.Context, id uuid.UUID) (*models.ClientInstance, error) {
 	query := `
 		SELECT
-			id, name, description, blueprint_id, variable_values,
-			client_repo_url, client_repo_branch,
+			id, name, description, blueprint_id, blueprint_version, -- Added blueprint_version
+			variable_values, client_repo_url, client_repo_branch,
 			last_sync_status, last_sync_message, last_synced_at,
 			created_at, updated_at
 		FROM client_instances
@@ -94,6 +94,7 @@ func (r *ClientInstanceRepository) GetClientInstanceByID(ctx context.Context, id
 		&ci.Name,
 		&ci.Description,
 		&ci.BlueprintID,
+		&ci.BlueprintVersion, // Scan the new field
 		&ci.VariableValues,
 		&ci.ClientRepoURL,
 		&ci.ClientRepoBranch,
@@ -103,57 +104,52 @@ func (r *ClientInstanceRepository) GetClientInstanceByID(ctx context.Context, id
 		&ci.CreatedAt,
 		&ci.UpdatedAt,
 	)
-
+	// ... error handling ...
 	if err != nil {
 		return nil, r.handleClientInstancePgError(err)
 	}
-
 	return &ci, nil
 }
 
 func (r *ClientInstanceRepository) ListClientInstances(ctx context.Context) ([]*ClientInstanceListItem, error) {
-	// Updated query with JOIN
 	query := `
 		SELECT
-			ci.id, ci.name, ci.description, ci.blueprint_id, ci.variable_values,
-			ci.client_repo_url, ci.client_repo_branch,
+			ci.id, ci.name, ci.description, ci.blueprint_id, ci.blueprint_version, -- Added blueprint_version
+			ci.variable_values, ci.client_repo_url, ci.client_repo_branch,
 			ci.last_sync_status, ci.last_sync_message, ci.last_synced_at,
 			ci.created_at, ci.updated_at,
-			b.name AS blueprint_name -- Select blueprint name
+			b.name AS blueprint_name
 		FROM client_instances ci
-		LEFT JOIN blueprints b ON ci.blueprint_id = b.id -- Join with blueprints
+		LEFT JOIN blueprints b ON ci.blueprint_id = b.id
 		ORDER BY ci.name ASC`
 
 	rows, err := r.DB.Query(ctx, query)
-	if err != nil {
-		log.Printf("Error listing client instances: %v\n", err)
+	// ... error handling ...
+	if err != nil { /* ... */
 		return nil, err
 	}
 	defer rows.Close()
 
-	instances := []*ClientInstanceListItem{} // Use the new struct type
+	instances := []*ClientInstanceListItem{}
 	for rows.Next() {
-		var item ClientInstanceListItem // Use the new struct type
-		// Scan into the embedded struct and the new field
+		var item ClientInstanceListItem
 		err := rows.Scan(
-			&item.ID, &item.Name, &item.Description, &item.BlueprintID, &item.VariableValues,
-			&item.ClientRepoURL, &item.ClientRepoBranch,
+			&item.ID, &item.Name, &item.Description, &item.BlueprintID, &item.BlueprintVersion, // Scan new field
+			&item.VariableValues, &item.ClientRepoURL, &item.ClientRepoBranch,
 			&item.LastSyncStatus, &item.LastSyncMessage, &item.LastSyncedAt,
 			&item.CreatedAt, &item.UpdatedAt,
-			&item.BlueprintName, // Scan the blueprint name
+			&item.BlueprintName,
 		)
-		if err != nil {
-			log.Printf("Error scanning client instance list row: %v\n", err)
+		// ... error handling ...
+		if err != nil { /* ... */
 			return nil, err
 		}
 		instances = append(instances, &item)
 	}
-
-	if err = rows.Err(); err != nil {
-		log.Printf("Error iterating client instance list rows: %v\n", err)
+	// ... error handling ...
+	if err = rows.Err(); err != nil { /* ... */
 		return nil, err
 	}
-
 	return instances, nil
 }
 
@@ -172,6 +168,11 @@ func (r *ClientInstanceRepository) UpdateClientInstance(ctx context.Context, id 
 		args = append(args, *req.Description)
 		argID++
 	}
+	if req.BlueprintVersion != nil {
+		query += "blueprint_version = $" + strconv.Itoa(argID) + ", "
+		args = append(args, *req.BlueprintVersion)
+		argID++
+	} // Add blueprint_version
 	if req.VariableValues != nil {
 		query += "variable_values = $" + strconv.Itoa(argID) + ", "
 		args = append(args, *req.VariableValues)
@@ -196,6 +197,7 @@ func (r *ClientInstanceRepository) UpdateClientInstance(ctx context.Context, id 
 	args = append(args, id)
 
 	cmdTag, err := r.DB.Exec(ctx, query, args...)
+	// ... error handling ...
 	if err != nil {
 		return r.handleClientInstancePgError(err)
 	}
@@ -236,6 +238,6 @@ func (r *ClientInstanceRepository) UpdateSyncStatus(ctx context.Context, id uuid
 }
 
 type ClientInstanceListItem struct {
-	models.ClientInstance        // Embed base fields
-	BlueprintName         string `json:"blueprint_name"` // Add blueprint name
+	models.ClientInstance        // Embed base fields (now includes BlueprintVersion)
+	BlueprintName         string `json:"blueprint_name"`
 }

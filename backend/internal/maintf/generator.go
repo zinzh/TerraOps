@@ -41,7 +41,7 @@ func (g *Generator) Generate(moduleName string, blueprintGitURL string, blueprin
 	moduleBody.SetAttributeValue("source", cty.StringVal(blueprintGitURL))
 
 	// Set the version attribute if provided
-	if blueprintVersion != nil && *blueprintVersion != "" { // Check against nil directly
+	if blueprintVersion != nil && *blueprintVersion != "" {
 		moduleBody.SetAttributeValue("version", cty.StringVal(*blueprintVersion))
 	}
 

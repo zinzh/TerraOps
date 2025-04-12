@@ -32,6 +32,7 @@ interface ClientInstanceFormData {
     clientRepoUrl: string;
     clientRepoBranch?: string;
     selectedBlueprintId: string;
+    blueprintVersion?: string;
     // Variable values will be nested or handled dynamically
     variables: Record<string, any>;
 }
@@ -46,6 +47,7 @@ function ClientInstanceCreatePage() {
             instanceDescription: '',
             clientRepoUrl: '',
             clientRepoBranch: 'main',
+            blueprintVersion: '', 
             selectedBlueprintId: '',
             variables: {},
         },
@@ -119,6 +121,7 @@ function ClientInstanceCreatePage() {
             description: data.instanceDescription?.trim() || undefined,
             blueprint_id: data.selectedBlueprintId,
             variable_values: data.variables, // Use variables from RHF state
+            blueprint_version: data.blueprintVersion?.trim() || undefined,
             client_repo_url: data.clientRepoUrl.trim(),
             client_repo_branch: data.clientRepoBranch?.trim() || 'main',
         };
@@ -441,6 +444,17 @@ function ClientInstanceCreatePage() {
                                  </Select>
                                  <FormHelperText>{fieldError?.message || (!loadingBlueprints && blueprints.length === 0 ? 'No parsed blueprints found.' : '')}</FormHelperText>
                              </FormControl>
+                         )}
+                     />
+                     <Controller
+                        name="blueprintVersion"
+                        control={control}
+                        render={({ field }) => (
+                             <TextField {...field} margin="normal" fullWidth
+                                 id="blueprintVersion" label="Blueprint Version (Optional)"
+                                 helperText="Enter Git branch, tag, or commit SHA (leave empty for default branch)"
+                                 disabled={isSubmitting || !selectedBlueprintId} // Disable if no blueprint selected
+                             />
                          )}
                      />
 
