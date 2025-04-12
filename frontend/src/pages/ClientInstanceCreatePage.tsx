@@ -4,6 +4,7 @@ import { useForm, Controller, SubmitHandler, Resolver } from 'react-hook-form'; 
 import blueprintService from '../services/blueprintService';
 import clientInstanceService from '../services/clientInstanceService';
 import { Blueprint, TfVariable, VariableDefinitions, ClientInstance } from '../types'; // Add ClientInstance
+import ObjectJsonInput from '../components/ObjectJsonInput';
 
 // MUI Components
 import Box from '@mui/material/Box';
@@ -162,24 +163,101 @@ function ClientInstanceCreatePage() {
          return "";
      };
 
-     // Render form field using RHF Controller
-     const renderVariableInput = (variable: TfVariable) => {
-        const key = variable.name;
-        const variablePath = `variables.${key}` as const;
-        const typeString = JSON.stringify(variable.type).toLowerCase();
-        const isBool = typeString.includes('"bool"');
-        const isNumber = typeString.includes('"number"');
-        const isList = typeString.startsWith('"list') || typeString.startsWith('"tuple'); // Basic check for list/tuple
-        // More specific check (e.g., for list(string)) might involve parsing typeString
-        const isStringList = isList && typeString.includes('string');
-        const isMap = typeString.startsWith('"map') || typeString.startsWith('"object');
-         // Basic check for map(string) - assumes string values for simplicity
-         const isStringMap = isMap && (typeString.includes('string') || typeString.includes('any') || typeString.includes('dynamic'));
-        // Add checks for list(number), map(string), etc. later
+     const getFieldTypeInfo = (typeJson: any): { baseType: string, subType1?: string, subType2?: string } => {
+        try {
+            let typeString = '';
+            // It might be a string like "\"object({\\\n    key1 = string\\\n    key2 = number\\\n  })\""
+            // Or already parsed JSON from backend like {"type":"object", "attrs":...}
+            // Or from cty like {"object":{"key1":"string"}}
+            if (typeof typeJson === 'string') {
+                // Attempt to remove outer quotes and unescape
+                try { typeString = JSON.parse(typeJson); } catch { typeString = typeJson; }
+            } else if (typeof typeJson === 'object' && typeJson !== null) {
+                 // Handle potential object representations from CTY or custom backend parsing
+                 if (typeJson.type === 'object') return { baseType: 'object' }; // Simplistic
+                 if (typeJson.object) return { baseType: 'object' }; // Simplistic
+                 // Fallback to stringify for keyword check if unsure
+                 typeString = JSON.stringify(typeJson).toLowerCase();
+            } else {
+                 typeString = String(typeJson).toLowerCase();
+            }
 
-        const isRequired = !variable.nullable && variable.default === undefined;
+            typeString = typeString.toLowerCase(); // Ensure lowercase
+
+            if (typeString.startsWith('object') || typeString.startsWith('map')) {
+                 // Basic check for map(string) vs object
+                 if (typeString.startsWith('map') && typeString.includes('string')) return { baseType: 'map', subType1: 'string' };
+                 // Assume object otherwise for now
+                 return { baseType: 'object' };
+            }
+            if (typeString.startsWith('list') || typeString.startsWith('tuple') || typeString.startsWith('set')) {
+                if (typeString.includes('string')) return { baseType: 'list', subType1: 'string' };
+                if (typeString.includes('number')) return { baseType: 'list', subType1: 'number' };
+                 // Basic check for list(object) - needs better parsing for real use
+                if (typeString.includes('object')) return { baseType: 'list', subType1: 'object' };
+                return { baseType: 'list' }; // Generic list
+            }
+            if (typeString.includes('string')) return { baseType: 'string' };
+            if (typeString.includes('number')) return { baseType: 'number' };
+            if (typeString.includes('bool')) return { baseType: 'bool' };
+
+            return { baseType: 'unknown' }; // Default fallback
+
+        } catch (e) {
+            console.error("Error parsing type info:", typeJson, e);
+            return { baseType: 'unknown' };
+        }
+     };
+     
+     // Render form field using RHF Controller
+     const renderVariableInput = (variable: TfVariable, pathPrefix: string = 'variables') => {
+        const key = variable.name;
+         // Construct the full path for RHF
+         const variablePath = `${pathPrefix}.${key}` as any; // Use 'any' for dynamic paths temporarily
+
+         const typeInfo = getFieldTypeInfo(variable.type);
+         const isRequired = !variable.nullable && variable.default === undefined;
+
+
+         if (typeInfo.baseType === 'object') {
+            // Render the dedicated component via Controller
+            return (
+                <Controller
+                    key={variablePath}
+                    name={variablePath}
+                    control={control}
+                    defaultValue={{}} // Default for RHF
+                    rules={{
+                        // Validation still happens here based on the value RHF holds
+                        validate: (value) => {
+                            if (isRequired && (typeof value !== 'object' || value === null || Object.keys(value).length === 0)) {
+                                return 'This object field is required and cannot be empty.';
+                            }
+                            // The validation rule now primarily checks if the stored value
+                            // is an object (meaning JSON was valid). If it stored the invalid
+                            // string from ObjectJsonInput, this check might fail correctly.
+                            if (typeof value !== 'object') {
+                                return 'Invalid JSON format.'
+                            }
+                            return true;
+                        }
+                    }}
+                    render={({ field, fieldState: { error: fieldError } }) => (
+                        // Pass RHF field props to the custom component
+                        <ObjectJsonInput
+                            label={key}
+                            description={variable.description}
+                            value={field.value} // Pass RHF value
+                            onChange={field.onChange} // Pass RHF onChange
+                            error={fieldError?.message} // Pass RHF error message
+                            disabled={isSubmitting || loading}
+                        />
+                    )}
+                />
+            );
+         }
         
-        if (isStringMap) {
+         if (typeInfo.baseType === 'map' && typeInfo.subType1 === 'string') {
             return (
                 <Controller
                     key={key}
@@ -265,7 +343,7 @@ function ClientInstanceCreatePage() {
         }
 
         // --- Handle Lists (Example: list(string)) ---
-        if (isStringList) {
+        if (typeInfo.baseType === 'list' && typeInfo.subType1 === 'string') {
              // Use Controller to manage the list array itself
              return (
                  <Controller
@@ -341,12 +419,12 @@ function ClientInstanceCreatePage() {
          // --- End Handle Lists ---
 
 
-        if (isBool) {
+         if (typeInfo.baseType === 'bool') {
              return ( <FormControlLabel key={key} control={ <Controller name={variablePath} control={control} defaultValue={false} render={({ field: { onChange, value, ref } }) => ( <Switch checked={!!value} onChange={onChange} inputRef={ref} disabled={isSubmitting || loading} /> )} /> } label={key} /> );
         }
 
         // --- Default TextField Input using Controller ---
-        return ( <Controller key={key} name={variablePath} control={control} rules={{ required: isRequired ? 'This field is required' : false }} render={({ field, fieldState: { error: fieldError } }) => ( <TextField {...field} margin="dense" fullWidth required={isRequired} label={key} error={!!fieldError} helperText={fieldError?.message || variable.description || ''} disabled={isSubmitting || loading} type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'} multiline={!isNumber && !isBool && String(field.value ?? '').length > 60} rows={!isNumber && !isBool && String(field.value ?? '').length > 60 ? 3 : 1} InputLabelProps={{ shrink: true }} /> )} /> );
+        return ( <Controller key={variablePath} name={variablePath} control={control} rules={{ required: isRequired ? 'This field is required' : false }} render={({ field, fieldState: { error: fieldError } }) => ( <TextField {...field} margin="dense" fullWidth required={isRequired} label={key} error={!!fieldError} helperText={fieldError?.message || variable.description || ''} disabled={isSubmitting || loading} type={typeInfo.baseType === 'number' ? 'number' : variable.sensitive ? 'password' : 'text'} InputLabelProps={{ shrink: true }} /> )} /> );
     };
 
     return (
@@ -476,9 +554,10 @@ function ClientInstanceCreatePage() {
                              Selected blueprint has no defined variables.
                          </Typography>
                     ): (
-                        Object.values(definitions)
+                        !loading && definitions && Object.keys(definitions).length > 0 && Object.values(definitions)
                             .sort((a, b) => a.name.localeCompare(b.name))
-                            .map(renderVariableInput) // This now uses Controller internally
+                            // Pass the top-level prefix 'variables'
+                            .map(variable => renderVariableInput(variable, 'variables'))
                     )}
 
 
