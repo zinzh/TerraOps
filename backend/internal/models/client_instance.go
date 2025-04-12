@@ -45,6 +45,6 @@ type UpdateClientInstanceRequest struct {
 
 // Represents the request to save/sync variables to the client's Git repo
 type SyncClientInstanceRequest struct {
-	VariableValues json.RawMessage `json:"variable_values" binding:"required"`
+	VariableValues json.RawMessage `json:"variable_values"`
 	CommitMessage  *string         `json:"commit_message,omitempty"` // Optional custom commit message
 }

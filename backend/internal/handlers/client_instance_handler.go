@@ -232,24 +232,55 @@ func (h *ClientInstanceHandler) SyncClientInstance(c *gin.Context) {
 	}
 
 	var req models.SyncClientInstanceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
-		return
+	var valuesToSync json.RawMessage
+	var commitMsg string
+
+	// Check content type and attempt bind only if JSON is present
+	if c.Request.ContentLength > 0 && strings.Contains(c.ContentType(), "application/json") {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
+			return
+		}
+		// Use values from request if provided
+		valuesToSync = req.VariableValues
+		if req.CommitMessage != nil {
+			commitMsg = *req.CommitMessage
+		}
+		// Basic check if values were actually provided in the JSON body
+		if len(valuesToSync) == 0 || string(valuesToSync) == "null" {
+			valuesToSync = nil // Treat empty/null JSON value as signal to use stored values
+		}
+
+	} else {
+		// If no request body or not JSON, assume sync with stored values
+		valuesToSync = nil
+		log.Printf("No variable_values in request body for instance %s sync, using stored values.", idStr)
 	}
 
 	log.Printf("Starting sync process for client instance ID %s\n", idStr)
 
 	// --- Orchestration Logic ---
 	var syncErrMsg *string
-	syncStatus := "success" // Assume success initially
-	var repoPath string     // Track repo path for cleanup
+	syncStatus := "success"
+	var repoPath string
 
-	// Use a helper function or run steps directly
-	err = func() error { // Use closure to handle errors and defer cleanup easily
-		// 1. Get Client Instance details (now includes BlueprintVersion)
+	err = func() error {
+		// 1. Get Client Instance details (includes stored variable_values)
 		instance, err := h.InstanceRepo.GetClientInstanceByID(c.Request.Context(), instanceID)
 		if err != nil {
 			return fmt.Errorf("failed to get client instance details: %w", err)
+		}
+
+		// ---- Use stored values if request didn't provide them ----
+		if valuesToSync == nil {
+			log.Println("Using variable values stored in database for sync.")
+			valuesToSync = instance.VariableValues // Use DB values
+			// Optional: Clear commit message if using DB values? Or allow default?
+			// commitMsg = "" // Let CommitAndPush use its default
+		}
+		// Ensure valuesToSync isn't nil before passing to generator (use empty object maybe?)
+		if valuesToSync == nil {
+			valuesToSync = json.RawMessage("{}")
 		}
 
 		// 2. Get Blueprint details
@@ -307,9 +338,12 @@ func (h *ClientInstanceHandler) SyncClientInstance(c *gin.Context) {
 		}
 
 		// 7. Commit and Push
-		commitMsg := fmt.Sprintf("Update configuration for %s", instance.Name)
+		commitMsg = fmt.Sprintf("Update configuration for %s", instance.Name)
 		if req.CommitMessage != nil && *req.CommitMessage != "" {
 			commitMsg = *req.CommitMessage
+		}
+		if commitMsg == "" {
+			commitMsg = fmt.Sprintf("Sync configuration for %s via TerraOps", instance.Name) // Generate default if needed
 		}
 
 		err = h.GitSvc.CommitAndPush(repo, repoPath, instance.ClientRepoBranch, commitMsg)

@@ -269,7 +269,7 @@ function ClientInstanceDetailPage() {
                 />
             );
          }
-         
+
          if (typeInfo.baseType === 'map' && typeInfo.subType1 === 'string') {
             return (
                 <Controller
@@ -507,20 +507,19 @@ function ClientInstanceDetailPage() {
                               <Link href={instance.client_repo_url.startsWith('http') ? instance.client_repo_url : '#'} target="_blank" rel="noopener noreferrer">{instance.client_repo_url}</Link>
                                (Branch: {instance.client_repo_branch})
                          </Typography>
-                         <Typography variant="body1" gutterBottom>
-                             <strong>Last Sync:</strong> 
-                             {instance.last_synced_at ? new Date(instance.last_synced_at).toLocaleString() : 'Never'}
-                             {instance.last_sync_status && <Tooltip title={instance.last_sync_message || instance.last_sync_status}>
-                        
-                        
-    <Chip
-      label={instance.last_sync_status}
-      size="small"
-      color={getStatusColor(instance.last_sync_status)}
-      sx={{ ml: 1 }}
-    />
-  </Tooltip> }
-                         </Typography>
+                         <Typography variant="body1" component="div" gutterBottom> {/* Use div for block display */}
+                            <strong>Last Sync:</strong> 
+                            {instance.last_synced_at ? new Date(instance.last_synced_at).toLocaleString() : 'Never'}
+                            {instance.last_sync_status &&
+                                <Chip label={instance.last_sync_status} size="small" color={getStatusColor(instance.last_sync_status)} sx={{ ml: 1, verticalAlign: 'middle' }} />
+                            }
+                            {/* Show error message clearly if status is failed */}
+                            {instance.last_sync_status === 'failed' && instance.last_sync_message && (
+                                <Typography variant="body2" color="error" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                                    Sync Error: {instance.last_sync_message}
+                                </Typography>
+                             )}
+                        </Typography>
                          <Typography variant="body1" gutterBottom>
                             <strong>Blueprint Version:</strong> {instance.blueprint_version || <em>Default Branch</em>}
                         </Typography>
