@@ -8,7 +8,11 @@ interface CreateBlueprintData {
     description?: string;
     git_repo_url: string;
 }
-
+interface UpdateBlueprintData {
+  name?: string;
+  description?: string;
+  git_repo_url?: string;
+}
 const listBlueprints = async (): Promise<Blueprint[]> => {
   try {
     const response = await apiClient.get<Blueprint[]>('/blueprints');
@@ -50,6 +54,16 @@ const createBlueprint = async (data: CreateBlueprintData): Promise<Blueprint> =>
 const deleteBlueprint = async (id: string): Promise<void> => {
     await apiClient.delete(`/blueprints/${id}`);
 }
+const updateBlueprint = async (id: string, data: UpdateBlueprintData): Promise<Blueprint> => {
+  try {
+      // Use PUT method for updates
+      const response = await apiClient.put<Blueprint>(`/blueprints/${id}`, data);
+      return response.data;
+  } catch (error: any) {
+       console.error(`Error updating blueprint ${id}:`, error);
+       throw error; // Re-throw
+  }
+};
 
 
 const blueprintService = {
@@ -58,7 +72,7 @@ const blueprintService = {
   parseBlueprint,
   createBlueprint,
   deleteBlueprint,
-  // ... other functions
+  updateBlueprint
 };
 
 export default blueprintService;

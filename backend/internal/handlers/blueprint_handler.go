@@ -150,6 +150,7 @@ func (h *BlueprintHandler) UpdateBlueprint(c *gin.Context) {
 	updatedBlueprint, err := h.BlueprintRepo.GetBlueprintByID(c.Request.Context(), blueprintID)
 	if err != nil {
 		log.Printf("Error fetching updated blueprint (ID: %s) after update: %v\n", blueprintID, err)
+		// Even if fetch fails, the update succeeded. Return 200 OK with a simple message.
 		c.JSON(http.StatusOK, gin.H{"message": "Blueprint updated successfully"})
 		return
 	}

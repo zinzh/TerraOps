@@ -136,12 +136,14 @@ function BlueprintDetailPage() {
                                     <RefreshIcon />
                                 </IconButton>
                              </Tooltip>
-                             <Tooltip title="Edit Blueprint (Coming Soon)">
-                                <span> {/* Span needed for tooltip on disabled button */}
-                                <IconButton onClick={handleEdit} color="default" disabled={true}>
+                             <Tooltip title="Edit Blueprint">
+                                <IconButton
+                                    onClick={() => navigate(`/blueprints/${id}/edit`)} // Navigate on click
+                                    color="default"
+                                    disabled={loading || isParsing} // Disable while loading/parsing
+                                >
                                     <EditIcon />
                                 </IconButton>
-                                </span>
                              </Tooltip>
                              <Tooltip title="Re-Parse Variables">
                                 <span> {/* Span needed for tooltip on disabled button */}
