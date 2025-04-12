@@ -22,6 +22,8 @@ import FormHelperText from '@mui/material/FormHelperText';
 import Divider from '@mui/material/Divider';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import { Stack, IconButton } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 // Define the shape of our form data
 interface ClientInstanceFormData {
@@ -56,6 +58,8 @@ function ClientInstanceCreatePage() {
     const [selectedBlueprint, setSelectedBlueprint] = useState<Blueprint | null>(null);
     const [loadingBlueprints, setLoadingBlueprints] = useState<boolean>(true);
     const [apiError, setApiError] = useState<string | null>(null); // For general API errors
+    const [loading, setLoading] = useState<boolean>(true);
+    const [newItem, setNewItem] = useState(''); // Local state for the input field
 
     // Watch the selected blueprint ID from the form state
     const selectedBlueprintId = watch('selectedBlueprintId');
@@ -155,65 +159,102 @@ function ClientInstanceCreatePage() {
 
      // Render form field using RHF Controller
      const renderVariableInput = (variable: TfVariable) => {
-         const key = variable.name;
-         const variablePath = `variables.${key}` as const; // Path for RHF
+        const key = variable.name;
+        const variablePath = `variables.${key}` as const;
+        const typeString = JSON.stringify(variable.type).toLowerCase();
+        const isBool = typeString.includes('"bool"');
+        const isNumber = typeString.includes('"number"');
+        const isList = typeString.startsWith('"list') || typeString.startsWith('"tuple'); // Basic check for list/tuple
+        // More specific check (e.g., for list(string)) might involve parsing typeString
+        const isStringList = isList && typeString.includes('string');
+        // Add checks for list(number), map(string), etc. later
 
-         const typeString = JSON.stringify(variable.type).toLowerCase();
-         const isBool = typeString.includes('"bool"');
-         const isNumber = typeString.includes('"number"');
-         const isRequired = !variable.nullable && variable.default === undefined;
+        const isRequired = !variable.nullable && variable.default === undefined;
 
-         if (isBool) {
-              return (
-                 <FormControlLabel
-                    key={key}
-                    control={
-                         <Controller
-                             name={variablePath}
-                             control={control}
-                             defaultValue={false} // Default value for RHF Controller
-                             render={({ field: { onChange, value, ref } }) => (
-                                 <Switch
-                                     checked={!!value} // Use value from RHF field state
-                                     onChange={onChange} // Use RHF onChange handler
-                                     inputRef={ref} // Connect ref
-                                     disabled={isSubmitting}
-                                 />
-                             )}
-                         />
-                     }
-                     label={key}
+        // --- Handle Lists (Example: list(string)) ---
+        if (isStringList) {
+             // Use Controller to manage the list array itself
+             return (
+                 <Controller
+                     key={key}
+                     name={variablePath}
+                     control={control}
+                     defaultValue={[]} // Default to empty array for RHF
+                     rules={{
+                          validate: (value) => !isRequired || (Array.isArray(value) && value.length > 0) || 'At least one item is required'
+                     }}
+                     render={({ field, fieldState: { error: fieldError } }) => {
+                         // field.value should be the array
+                         const currentList: string[] = Array.isArray(field.value) ? field.value : [];
+                         
+
+                         const handleAddItem = () => {
+                             if (newItem.trim()) {
+                                 // Update RHF field state with the new array
+                                 field.onChange([...currentList, newItem.trim()]);
+                                 setNewItem(''); // Clear input
+                             }
+                         };
+
+                         const handleRemoveItem = (indexToRemove: number) => {
+                             field.onChange(currentList.filter((_, index) => index !== indexToRemove));
+                         };
+
+                         return (
+                             <FormControl fullWidth margin="dense" error={!!fieldError} component="fieldset" variant="outlined" sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                 <Typography component="legend" variant="body2" sx={{ mb: 1, fontWeight: 'medium' }}>{key}</Typography>
+                                 {variable.description && <FormHelperText sx={{mt: -1, mb: 1}}>{variable.description}</FormHelperText>}
+                                 {/* List existing items */}
+                                 <Stack spacing={1} sx={{ mb: 1 }}>
+                                     {currentList.map((item, index) => (
+                                         <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                             <Typography sx={{ flexGrow: 1, wordBreak: 'break-all' }}>
+                                                  {/* Check if item is string, otherwise stringify */}
+                                                  {typeof item === 'string' ? item : JSON.stringify(item)}
+                                              </Typography>
+                                             <IconButton size="small" onClick={() => handleRemoveItem(index)} disabled={isSubmitting || loading} color="error">
+                                                 <DeleteIcon fontSize="inherit" />
+                                             </IconButton>
+                                         </Box>
+                                     ))}
+                                     {currentList.length === 0 && <Typography variant="caption" color="textSecondary">(No items added yet)</Typography>}
+                                 </Stack>
+                                 {/* Input to add new item */}
+                                 <Box sx={{ display: 'flex', gap: 1 }}>
+                                     <TextField
+                                         size="small"
+                                         label="New Item"
+                                         value={newItem}
+                                         onChange={(e) => setNewItem(e.target.value)}
+                                         disabled={isSubmitting || loading}
+                                         sx={{ flexGrow: 1 }}
+                                         onKeyDown={(e) => { // Allow adding with Enter key
+                                               if (e.key === 'Enter') {
+                                                   e.preventDefault(); // Prevent form submission
+                                                   handleAddItem();
+                                               }
+                                           }}
+                                     />
+                                     <Button variant="outlined" size="small" onClick={handleAddItem} disabled={isSubmitting || loading || !newItem.trim()}>Add</Button>
+                                 </Box>
+                                  {/* Display validation error for the list */}
+                                  {fieldError && <FormHelperText error>{fieldError.message}</FormHelperText>}
+                             </FormControl>
+                         );
+                     }}
                  />
              );
          }
+         // --- End Handle Lists ---
 
-         return (
-             <Controller
-                 key={key}
-                 name={variablePath}
-                 control={control}
-                 rules={{ required: isRequired ? 'This field is required' : false }}
-                 render={({ field, fieldState: { error: fieldError } }) => (
-                     <TextField
-                         {...field} // Spread field props (onChange, onBlur, value, ref)
-                         margin="dense"
-                         fullWidth
-                         required={isRequired} // Visual indicator
-                         label={key}
-                         error={!!fieldError}
-                         helperText={fieldError?.message || variable.description || ''}
-                         disabled={isSubmitting}
-                         type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'}
-                         multiline={!isNumber && !isBool && String(field.value ?? '').length > 60}
-                         rows={!isNumber && !isBool && String(field.value ?? '').length > 60 ? 3 : 1}
-                         InputLabelProps={{ shrink: true }}
-                         // RHF handles value, no need for `value={...}` prop directly
-                         // RHF handles onChange, no need for `onChange={...}` prop directly
-                     />
-                 )}
-             />
-         );
-     };
+
+        if (isBool) {
+             return ( <FormControlLabel key={key} control={ <Controller name={variablePath} control={control} defaultValue={false} render={({ field: { onChange, value, ref } }) => ( <Switch checked={!!value} onChange={onChange} inputRef={ref} disabled={isSubmitting || loading} /> )} /> } label={key} /> );
+        }
+
+        // --- Default TextField Input using Controller ---
+        return ( <Controller key={key} name={variablePath} control={control} rules={{ required: isRequired ? 'This field is required' : false }} render={({ field, fieldState: { error: fieldError } }) => ( <TextField {...field} margin="dense" fullWidth required={isRequired} label={key} error={!!fieldError} helperText={fieldError?.message || variable.description || ''} disabled={isSubmitting || loading} type={isNumber ? 'number' : variable.sensitive ? 'password' : 'text'} multiline={!isNumber && !isBool && String(field.value ?? '').length > 60} rows={!isNumber && !isBool && String(field.value ?? '').length > 60 ? 3 : 1} InputLabelProps={{ shrink: true }} /> )} /> );
+    };
 
     return (
         <Box>

@@ -1,5 +1,6 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+// Import NavLink from react-router-dom for active styling
+import { useNavigate, NavLink } from 'react-router-dom';
 import authService from '../services/authService';
 
 // MUI Components
@@ -9,10 +10,11 @@ import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
-import AccountCircle from '@mui/icons-material/AccountCircle'; // Example user icon
+import AccountCircle from '@mui/icons-material/AccountCircle';
+import Stack from '@mui/material/Stack'; // For arranging NavLinks
 
 interface AppLayoutProps {
-  children: React.ReactNode; // To render the page content
+  children: React.ReactNode;
 }
 
 function AppLayout({ children }: AppLayoutProps) {
@@ -24,22 +26,48 @@ function AppLayout({ children }: AppLayoutProps) {
     navigate('/login', { replace: true });
   };
 
+  // Style for active NavLink
+  const activeStyle = {
+      textDecoration: 'underline',
+      fontWeight: 'bold',
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <AppBar position="static">
         <Toolbar>
-          {/* <IconButton
-            size="large"
-            edge="start"
-            color="inherit"
-            aria-label="menu"
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon /> // Add menu icon later if needed
-          </IconButton> */}
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          {/* Title */}
+          <Typography variant="h6" component="div" sx={{ mr: 3 }}> {/* Added margin */}
             TerraOps Manager
           </Typography>
+
+          {/* Navigation Links */}
+          <Stack direction="row" spacing={2} sx={{ flexGrow: 1 }}>
+            <NavLink
+                to="/client-instances"
+                style={({ isActive }) => ({
+                    color: 'inherit', // Inherit AppBar text color
+                    textDecoration: 'none', // Remove default underline
+                    ...(isActive ? activeStyle : {}), // Apply active style conditionally
+                })}
+            >
+                <Typography variant="button">Client Instances</Typography>
+             </NavLink>
+             <NavLink
+                 to="/blueprints"
+                 style={({ isActive }) => ({
+                    color: 'inherit',
+                    textDecoration: 'none',
+                    ...(isActive ? activeStyle : {}),
+                 })}
+             >
+                 <Typography variant="button">Blueprints</Typography>
+             </NavLink>
+             {/* Add more top-level navigation links here */}
+          </Stack>
+
+
+          {/* User Info & Logout */}
           {currentUser && (
              <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <AccountCircle sx={{ mr: 1 }}/>
@@ -52,7 +80,7 @@ function AppLayout({ children }: AppLayoutProps) {
         </Toolbar>
       </AppBar>
       {/* Main content area */}
-      <Box component="main" sx={{ flexGrow: 1, p: 3 /* Add padding here or in child pages */ }}>
+      <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
         {children}
       </Box>
     </Box>
