@@ -24,12 +24,14 @@ import SyncIcon from '@mui/icons-material/Sync'; // For Sync action
 import Link from '@mui/material/Link'; // For external repo links
 import Tooltip from '@mui/material/Tooltip';
 import Chip from '@mui/material/Chip'; // To display status
+import { useSnackbar } from '../context/SnackbarContext';
 
 function ClientInstanceListPage() {
   const [instances, setInstances] = useState<ClientInstance[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { showSnackbar } = useSnackbar();
 
   const fetchInstances = async () => {
     setLoading(true);
@@ -57,7 +59,7 @@ function ClientInstanceListPage() {
       // Placeholder: Trigger sync and provide feedback
       // In a real app, this might open a modal to confirm values/commit message
       // or just trigger the sync directly using last known values.
-      alert(`Trigger sync for instance ${id} (using last saved values - implementation pending)`);
+      showSnackbar(`Triggering sync for instance ${id}...`, 'info');
       // TODO: Call backend sync endpoint (requires service function)
       // try {
       //     await clientInstanceService.syncInstance(id); // Need this function
@@ -73,12 +75,14 @@ function ClientInstanceListPage() {
             await clientInstanceService.deleteClientInstance(id);
             // Refresh list after successful deletion
             fetchInstances();
+            showSnackbar(`Instance "${name}" deleted successfully.`, 'success');
             // Optional: Show success feedback (e.g., Snackbar)
             // alert(`Instance "${name}" deleted successfully.`);
         } catch (err: any) {
             console.error(`Failed to delete client instance ${id}:`, err);
             const errorMsg = err.response?.data?.error || 'Failed to delete client instance.';
             setError(errorMsg); // Show delete error
+            showSnackbar(`Error deleting instance: ${errorMsg}`, 'error');
         }
     }
 }

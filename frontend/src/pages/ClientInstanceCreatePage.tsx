@@ -60,6 +60,8 @@ function ClientInstanceCreatePage() {
     const [apiError, setApiError] = useState<string | null>(null); // For general API errors
     const [loading, setLoading] = useState<boolean>(true);
     const [newItem, setNewItem] = useState(''); // Local state for the input field
+    const [newKey, setNewKey] = useState('');
+    const [newValue, setNewValue] = useState('');
 
     // Watch the selected blueprint ID from the form state
     const selectedBlueprintId = watch('selectedBlueprintId');
@@ -167,9 +169,97 @@ function ClientInstanceCreatePage() {
         const isList = typeString.startsWith('"list') || typeString.startsWith('"tuple'); // Basic check for list/tuple
         // More specific check (e.g., for list(string)) might involve parsing typeString
         const isStringList = isList && typeString.includes('string');
+        const isMap = typeString.startsWith('"map') || typeString.startsWith('"object');
+         // Basic check for map(string) - assumes string values for simplicity
+         const isStringMap = isMap && (typeString.includes('string') || typeString.includes('any') || typeString.includes('dynamic'));
         // Add checks for list(number), map(string), etc. later
 
         const isRequired = !variable.nullable && variable.default === undefined;
+        
+        if (isStringMap) {
+            return (
+                <Controller
+                    key={key}
+                    name={variablePath}
+                    control={control}
+                    defaultValue={{}} // Default to empty object for RHF
+                    rules={{
+                         validate: (value) => !isRequired || (typeof value === 'object' && value !== null && Object.keys(value).length > 0) || 'At least one key-value pair is required'
+                    }}
+                    render={({ field, fieldState: { error: fieldError } }) => {
+                        const currentMap: Record<string, string> = (typeof field.value === 'object' && field.value !== null) ? field.value : {};
+                        
+                        
+
+                        const handleAddPair = () => {
+                            const trimmedKey = newKey.trim();
+                            if (trimmedKey) {
+                                const updatedMap = { ...currentMap, [trimmedKey]: newValue };
+                                field.onChange(updatedMap);
+                                setNewKey('');
+                                setNewValue('');
+                            }
+                        };
+
+                        const handleRemovePair = (keyToRemove: string) => {
+                            const { [keyToRemove]: _, ...remainingMap } = currentMap; // Destructure to remove key
+                            field.onChange(remainingMap);
+                        };
+
+                        return (
+                            <FormControl fullWidth margin="dense" error={!!fieldError} component="fieldset" variant="outlined" sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                <Typography component="legend" variant="body2" sx={{ mb: 1, fontWeight: 'medium' }}>{key} (Map)</Typography>
+                                {variable.description && <FormHelperText sx={{mt: -1, mb: 1}}>{variable.description}</FormHelperText>}
+
+                                {/* List existing pairs */}
+                                <Stack spacing={1} sx={{ mb: 2, pl:1 }}>
+                                    {Object.entries(currentMap).map(([itemKey, itemValue]) => (
+                                        <Box key={itemKey} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Typography sx={{ fontWeight: 'bold', mr: 1 }}>{itemKey}:</Typography>
+                                            <Typography sx={{ flexGrow: 1, wordBreak: 'break-all' }}>{itemValue}</Typography>
+                                            <IconButton size="small" onClick={() => handleRemovePair(itemKey)} disabled={isSubmitting || loading} color="error">
+                                                <DeleteIcon fontSize="inherit" />
+                                            </IconButton>
+                                        </Box>
+                                    ))}
+                                    {Object.keys(currentMap).length === 0 && <Typography variant="caption" color="textSecondary">(No key-value pairs added yet)</Typography>}
+                                </Stack>
+
+                                {/* Input to add new pair */}
+                                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <TextField
+                                        size="small"
+                                        label="New Key"
+                                        value={newKey}
+                                        onChange={(e) => setNewKey(e.target.value)}
+                                        disabled={isSubmitting || loading}
+                                        sx={{ flexGrow: 1, minWidth: '120px' }} // Allow shrinking but have minimum
+                                    />
+                                     <TextField
+                                        size="small"
+                                        label="New Value"
+                                        value={newValue}
+                                        onChange={(e) => setNewValue(e.target.value)}
+                                        disabled={isSubmitting || loading}
+                                        sx={{ flexGrow: 2, minWidth: '150px' }} // Allow shrinking but have minimum
+                                         onKeyDown={(e) => { // Allow adding with Enter key in value field
+                                               if (e.key === 'Enter') {
+                                                   e.preventDefault();
+                                                   handleAddPair();
+                                               }
+                                           }}
+                                    />
+                                    <Button variant="outlined" size="small" onClick={handleAddPair} disabled={isSubmitting || loading || !newKey.trim()} sx={{ height: '40px' }}>Add Pair</Button>
+                                </Box>
+
+                                 {/* Display validation error for the map */}
+                                 {fieldError && <FormHelperText error sx={{ mt: 1 }}>{fieldError.message}</FormHelperText>}
+                            </FormControl>
+                        );
+                    }}
+                />
+            );
+        }
 
         // --- Handle Lists (Example: list(string)) ---
         if (isStringList) {

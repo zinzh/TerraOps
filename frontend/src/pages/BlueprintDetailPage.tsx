@@ -18,6 +18,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // Parse
 import EditIcon from '@mui/icons-material/Edit'; // Edit later
+import { useSnackbar } from '../context/SnackbarContext';
 
 function BlueprintDetailPage() {
     const { id } = useParams<{ id: string }>(); // Get ID from URL
@@ -26,6 +27,7 @@ function BlueprintDetailPage() {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [isParsing, setIsParsing] = useState<boolean>(false); // State for parse action
+    const { showSnackbar } = useSnackbar();
 
 
     const fetchBlueprint = useCallback(async () => {
@@ -36,11 +38,14 @@ function BlueprintDetailPage() {
         }
         setLoading(true);
         setError(null);
+        showSnackbar('Triggering variable parsing...', 'info');
         try {
             const data = await blueprintService.getBlueprintById(id);
+            showSnackbar('Parsing triggered successfully. Refreshing details...', 'success');
             setBlueprint(data);
         } catch (err: any) {
             setError(err.response?.data?.error || `Failed to fetch blueprint ${id}.`);
+            showSnackbar(`Error triggering parse`, 'error'); 
             console.error(err);
         } finally {
             setLoading(false);
@@ -63,12 +68,13 @@ function BlueprintDetailPage() {
         try {
             await blueprintService.parseBlueprint(id);
             // Show feedback and refresh data after a short delay
-            alert('Parsing triggered successfully. Refreshing details...');
+            showSnackbar('Parsing triggered successfully. Refreshing details...', 'success');
             setTimeout(fetchBlueprint, 2000); // Refresh after 2 seconds (adjust as needed)
         } catch (err: any) {
             console.error(`Failed to parse blueprint ${id}:`, err);
             const errorMsg = err.response?.data?.error || 'Failed to trigger parsing.';
             setError(`Parse Error: ${errorMsg}`);
+            showSnackbar(`Error triggering parse: ${errorMsg}`, 'error');
         } finally {
             setIsParsing(false);
         }

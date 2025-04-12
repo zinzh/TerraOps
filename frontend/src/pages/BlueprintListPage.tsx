@@ -22,6 +22,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'; // For Parse action
 import Tooltip from '@mui/material/Tooltip';
+import { useSnackbar } from '../context/SnackbarContext';
 
 // We'll add a Layout component later for the AppBar
 // import AppLayout from '../components/AppLayout';
@@ -31,6 +32,7 @@ function BlueprintListPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate(); // Make sure useNavigate is imported
+  const { showSnackbar } = useSnackbar();
 
 
 
@@ -64,13 +66,14 @@ function BlueprintListPage() {
           const result = await blueprintService.parseBlueprint(id);
           console.log("Parse result:", result);
           // Optionally show success message or refresh list/details
-          alert(`Parsing started for blueprint ${id}. Check logs or refresh details.`);
+          showSnackbar(`Parsing triggered successfully for blueprint ${id}.`, 'info');
           // Consider refreshing the specific row or the whole list after a delay
           // fetchBlueprints();
       } catch (err: any) {
           console.error(`Failed to parse blueprint ${id}:`, err);
           const errorMsg = err.response?.data?.error || 'Failed to trigger parsing.';
           setError(`Failed to parse blueprint ${id}: ${errorMsg}`); // Show error specific to parse
+          showSnackbar(`Error triggering parse: ${errorMsg}`, 'error'); 
       }
   }
 
@@ -78,12 +81,15 @@ function BlueprintListPage() {
       if (window.confirm(`Are you sure you want to delete blueprint "${name}"?`)) {
           try {
               await blueprintService.deleteBlueprint(id);
+              showSnackbar(`Blueprint "${name}" deleted successfully.`, 'success');
               // Refresh list after successful deletion
               fetchBlueprints();
           } catch (err: any) {
               console.error(`Failed to delete blueprint ${id}:`, err);
               const errorMsg = err.response?.data?.error || 'Failed to delete blueprint.';
               setError(errorMsg); // Show delete error
+              showSnackbar(`Error deleting blueprint: ${errorMsg}`, 'error'); 
+              
           }
       }
   }

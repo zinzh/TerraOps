@@ -12,6 +12,7 @@ import Paper from '@mui/material/Paper';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { useSnackbar } from '../context/SnackbarContext';
 
 // Use the AppLayout created earlier
 // import AppLayout from '../components/AppLayout';
@@ -23,6 +24,7 @@ function BlueprintCreatePage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
+    const { showSnackbar } = useSnackbar(); 
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -61,6 +63,7 @@ function BlueprintCreatePage() {
         try {
             await blueprintService.createBlueprint(blueprintData);
             // Success: Navigate back to the list page
+            showSnackbar('Blueprint created successfully!', 'success');
             navigate('/blueprints', { state: { message: 'Blueprint created successfully!' } }); // Optional: Pass success message
         } catch (err: any) {
             console.error("Create blueprint failed:", err);
