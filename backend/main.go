@@ -38,8 +38,9 @@ func main() {
 
 	// --- Initialize Services ---
 	gitSvc, err := git.NewService(
-		"", // Default base path
-		cfg.GitSSHKeyPath,
+		"",                // Default base path
+		cfg.GitAuthToken,  // Pass Auth Token
+		cfg.GitSSHKeyPath, // Pass SSH Key Path (optional)
 		cfg.GitUserName,
 		cfg.GitUserEmail,
 	)

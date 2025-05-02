@@ -10,8 +10,10 @@ import (
 
 	"github.com/go-git/go-git/v5" // Added
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"        // Added
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh" // Added for SSH Auth
+	"github.com/go-git/go-git/v5/plumbing/object" // Added
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/transport/http" // Added for HTTP Basic Auth
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"  // Keep for SSH Auth
 
 	// For known_hosts handling
 	gossh "golang.org/x/crypto/ssh" // Alias standard crypto/ssh
@@ -19,12 +21,13 @@ import (
 
 type Service struct {
 	CloneBasePath string
-	SSHKeyPath    string // Added: Path to the private SSH key
-	GitUserName   string // Added: Name for commits
-	GitUserEmail  string // Added: Email for commits
+	AuthToken     string // Added: Git PAT/token
+	SSHKeyPath    string // Path to the private SSH key (optional)
+	GitUserName   string // Name for commits
+	GitUserEmail  string // Email for commits
 }
 
-func NewService(basePath string, sshKeyPath string, userName string, userEmail string) (*Service, error) {
+func NewService(basePath string, authToken string, sshKeyPath string, userName string, userEmail string) (*Service, error) {
 	if basePath == "" {
 		basePath = os.TempDir() + "/terraops_clones"
 	}
@@ -33,10 +36,14 @@ func NewService(basePath string, sshKeyPath string, userName string, userEmail s
 		return nil, fmt.Errorf("failed to create git clone base directory '%s': %w", basePath, err)
 	}
 
-	// Basic validation for required fields
-	if sshKeyPath == "" {
-		log.Println("Warning: SSHKeyPath is empty in Git Service config. SSH operations will likely fail.")
+	// Updated validation logic (moved to config.Load)
+	if authToken == "" && sshKeyPath == "" {
+		log.Println("Git Service Warning: Neither AuthToken nor SSHKeyPath is configured. Private repo operations may fail.")
+	} else if authToken != "" && sshKeyPath != "" {
+		log.Println("Git Service Info: Both AuthToken and SSHKeyPath configured. Using AuthToken (HTTPS).")
+		sshKeyPath = "" // Prioritize token
 	}
+
 	if userName == "" || userEmail == "" {
 		log.Println("Warning: GitUserName or GitUserEmail is empty in Git Service config. Using defaults.")
 		if userName == "" {
@@ -50,6 +57,7 @@ func NewService(basePath string, sshKeyPath string, userName string, userEmail s
 	log.Printf("Git clone base directory: %s\n", basePath)
 	return &Service{
 		CloneBasePath: basePath,
+		AuthToken:     authToken,
 		SSHKeyPath:    sshKeyPath,
 		GitUserName:   userName,
 		GitUserEmail:  userEmail,
@@ -105,52 +113,60 @@ func (s *Service) CleanupRepository(destinationDirName string) error {
 	return nil
 }
 
-func (s *Service) createSSHAuth() (*ssh.PublicKeys, error) {
-	if s.SSHKeyPath == "" {
-		return nil, fmt.Errorf("ssh key path is not configured")
-	}
+// createAuth determines the appropriate authentication method based on configuration.
+func (s *Service) createAuth() (transport.AuthMethod, error) {
+	if s.AuthToken != "" {
+		// Use HTTPS Basic Auth with the token
+		log.Println("Using Git HTTPS Token Authentication")
+		// Most providers (GitHub, GitLab) accept the token as the password.
+		// GitHub: Username can be anything non-empty (e.g., "x-access-token").
+		// GitLab: Username should be "oauth2".
+		// Using a generic username for broader compatibility, token as password.
+		return &http.BasicAuth{
+			Username: "terraops-pat-auth", // Can be any non-empty string, or specific like "oauth2" for GitLab
+			Password: s.AuthToken,
+		}, nil
+	} else if s.SSHKeyPath != "" {
+		// Use SSH Key Auth
+		log.Println("Using Git SSH Key Authentication")
+		var publicKey *ssh.PublicKeys
+		sshKey, err := os.ReadFile(s.SSHKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read ssh key file %s: %w", s.SSHKeyPath, err)
+		}
 
-	var publicKey *ssh.PublicKeys
-	sshKey, err := os.ReadFile(s.SSHKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read ssh key file %s: %w", s.SSHKeyPath, err)
-	}
+		// Assuming key is not password-protected
+		publicKey, err = ssh.NewPublicKeys("git", sshKey, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create public keys from ssh key: %w", err)
+		}
 
-	publicKey, err = ssh.NewPublicKeys("git", sshKey, "") // Assumes no passphrase
-	if err != nil {
-		return nil, fmt.Errorf("failed to create public keys from ssh key: %w", err)
+		// --- Known Hosts Handling (Development/Insecure) ---
+		// WARNING: Vulnerable to Man-in-the-Middle attacks.
+		// Production systems should use a proper known_hosts file or callback.
+		publicKey.HostKeyCallbackHelper = ssh.HostKeyCallbackHelper{
+			HostKeyCallback: func(hostname string, remote net.Addr, key gossh.PublicKey) error {
+				log.Printf("Warning: Automatically accepting host key for %s (%s). This is insecure!", hostname, remote)
+				return nil // Accept any host key
+			},
+		}
+		// --- End Known Hosts Handling ---
+		return publicKey, nil
+	} else {
+		// No authentication configured
+		log.Println("No Git authentication method configured (Token or SSH Key). Operations might fail.")
+		return nil, nil // No auth, public repos might still work
 	}
-
-	// --- Known Hosts Handling (Development/Insecure) ---
-	// This automatically accepts the server's host key.
-	// WARNING: Vulnerable to Man-in-the-Middle attacks.
-	// Production systems should use a proper known_hosts file or callback.
-	publicKey.HostKeyCallbackHelper = ssh.HostKeyCallbackHelper{
-		HostKeyCallback: func(hostname string, remote net.Addr, key gossh.PublicKey) error {
-			// For development ONLY - accept any key
-			log.Printf("Warning: Automatically accepting host key for %s (%s). This is insecure!", hostname, remote)
-			// To make it slightly more secure for dev, you could try and parse ~/.ssh/known_hosts
-			// knownHostsPath := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
-			// hostKeyCallback, err := knownhosts.New(knownHostsPath)
-			// if err == nil {
-			//     return hostKeyCallback(hostname, remote, key)
-			// }
-			// log.Printf("Warning: Could not load known_hosts (%v), accepting any key.", err)
-			return nil // Accept any host key
-		},
-		// HostKeyCallback: gossh.InsecureIgnoreHostKey(), // Older/Alternative way
-	}
-	// --- End Known Hosts Handling ---
-
-	return publicKey, nil
 }
 
 func (s *Service) CloneOrOpenRepository(repoURL, branchName, destinationDirName string) (*git.Repository, string, error) {
 	repoPath := filepath.Join(s.CloneBasePath, destinationDirName)
 
-	auth, err := s.createSSHAuth()
+	// Use the new generalized auth method
+	auth, err := s.createAuth()
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to create ssh auth: %w", err)
+		// Error creating auth (e.g., couldn't read key file)
+		return nil, "", fmt.Errorf("failed to create git auth method: %w", err)
 	}
 
 	// Try opening existing repo first
@@ -279,9 +295,11 @@ func (s *Service) CommitAndPush(repo *git.Repository, repoPath string, branchNam
 
 	// Push changes
 	log.Printf("Pushing changes to origin branch '%s' for repo %s", branchName, repoPath)
-	auth, err := s.createSSHAuth()
+	// Use the new generalized auth method
+	auth, err := s.createAuth()
 	if err != nil {
-		return fmt.Errorf("failed to create ssh auth for push: %w", err)
+		// Error creating auth (e.g., couldn't read key file)
+		return fmt.Errorf("failed to create git auth method for push: %w", err)
 	}
 
 	pushOpts := &git.PushOptions{

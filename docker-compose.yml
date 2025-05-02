@@ -11,15 +11,12 @@ services:
       - "8080:8080" # Map host port 8080 to container port 8080
     volumes:
       - ./backend:/app
-      # Mount the private key read-only
-      # NOTE: Ensure terraops_deploy_key permissions are strict (e.g., 600) on the host
-      - ./terraops_deploy_key:/run/secrets/git_ssh_key:ro # Mount as a pseudo-secret
     # ... (depends_on, command, networks) ...
     environment:
       - PORT=8080
-      - DATABASE_URL=postgresql://user:password@db:5432/appdb?sslmode=disable
-      - JWT_SECRET=your_super_secret_key_for_development # Change this!
-      - GIT_SSH_KEY_PATH=/run/secrets/git_ssh_key # Path inside the container
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET}
+      - GIT_AUTH_TOKEN=${GIT_AUTH_TOKEN}
       - GIT_USER_NAME=TerraOps Bot # Git commit user name
       - GIT_USER_EMAIL=terraops-bot@example.com # Git commit user email
     depends_on:
@@ -61,9 +58,9 @@ services:
     ports:
       - "5433:5432" # Map host port 5433 to container port 5432 (avoids conflict)
     environment:
-      POSTGRES_USER: user # Change these in production
-      POSTGRES_PASSWORD: password # Use .env file or secrets management
-      POSTGRES_DB: appdb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       # Persist database data using a named volume
       - postgres-data:/var/lib/postgresql/data
