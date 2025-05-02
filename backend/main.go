@@ -116,37 +116,37 @@ func main() {
 		{
 			protected.GET("/profile", authHandler.GetUserProfile) // Example accessible by any logged-in user
 
-			// --- Routes requiring 'admin' role ---
-			adminRoutes := protected.Group("")
-			adminRoutes.Use(auth.RoleMiddleware(models.RoleAdmin)) // Apply Admin Role Check
+			// --- Blueprint Management (Accessible by User & Admin, Delete by Admin only) ---
+			// Moved out of the specific admin group
+			blueprintRoutes := protected.Group("/blueprints")
 			{
-				// Blueprint Management requires Admin
-				blueprintRoutes := adminRoutes.Group("/blueprints")
-				{
-					blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
-					blueprintRoutes.GET("", blueprintHandler.ListBlueprints) // Keep list public for selection? Or move? Decide based on UX. Let's assume admin only for now.
-					blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
-					blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
-					blueprintRoutes.DELETE("/:id", blueprintHandler.DeleteBlueprint)
-					blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables)
-				}
-				// Add User management routes here later (also admin only)
+				blueprintRoutes.POST("", blueprintHandler.CreateBlueprint)
+				blueprintRoutes.GET("", blueprintHandler.ListBlueprints)
+				blueprintRoutes.GET("/:id", blueprintHandler.GetBlueprint)
+				blueprintRoutes.PUT("/:id", blueprintHandler.UpdateBlueprint)
+				blueprintRoutes.POST("/:id/parse", blueprintHandler.ParseBlueprintVariables)
+				// Apply admin role check ONLY for DELETE
+				blueprintRoutes.DELETE("/:id", auth.RoleMiddleware(models.RoleAdmin), blueprintHandler.DeleteBlueprint)
 			}
 
-			// --- Routes accessible by authenticated 'user' (or 'admin') ---
-			// Client Instance Management can be done by users for instances they manage
-			// (Later add ownership checks, for now any logged-in user)
+			// --- Client Instance Management (Accessible by User & Admin, Delete by Admin only) ---
 			instanceRoutes := protected.Group("/client-instances")
-			// No additional RoleMiddleware needed here if AuthMiddleware is sufficient
-			// If you need to explicitly ensure ONLY 'user' or 'admin', add RoleMiddleware(models.RoleUser)
-			// But typically admins can also do user tasks.
 			{
 				instanceRoutes.POST("", instanceHandler.CreateClientInstance)
 				instanceRoutes.GET("", instanceHandler.ListClientInstances)
 				instanceRoutes.GET("/:id", instanceHandler.GetClientInstance)
-				instanceRoutes.PUT("/:id", instanceHandler.UpdateClientInstance) // Maybe restrict update later?
-				instanceRoutes.DELETE("/:id", instanceHandler.DeleteClientInstance)
+				instanceRoutes.PUT("/:id", instanceHandler.UpdateClientInstance)
 				instanceRoutes.POST("/:id/sync", instanceHandler.SyncClientInstance)
+				// Apply admin role check ONLY for DELETE
+				instanceRoutes.DELETE("/:id", auth.RoleMiddleware(models.RoleAdmin), instanceHandler.DeleteClientInstance)
+			}
+
+			// --- Routes requiring 'admin' role (Example: User Management - if added later) ---
+			adminRoutes := protected.Group("")                     // Group for routes strictly for admins
+			adminRoutes.Use(auth.RoleMiddleware(models.RoleAdmin)) // Apply Admin Role Check to this group
+			{
+				// Example: Add routes for managing users here
+				// adminRoutes.GET("/admin/users", userHandler.ListAllUsers) // Hypothetical
 			}
 
 		} // End Protected Group

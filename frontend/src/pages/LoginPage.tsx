@@ -1,5 +1,5 @@
 import React, { useState, FormEvent } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import authService from '../services/authService';
 
 // MUI Components
@@ -131,19 +131,12 @@ function LoginPage() {
           >
             {loading ? 'Signing In...' : 'Sign In'}
           </Button>
-          {/* Add Forgot password / Sign up links later if needed */}
-          {/* <Grid container>
-            <Grid item xs>
-              <Link href="#" variant="body2">
-                Forgot password?
-              </Link>
-            </Grid>
-            <Grid item>
-              <Link href="#" variant="body2">
-                {"Don't have an account? Sign Up"}
-              </Link>
-            </Grid>
-          </Grid> */}
+          {/* Use RouterLink for navigation */}
+          <Box sx={{ mt: 2, textAlign: 'right' }}>
+            <Link component={RouterLink} to="/register" variant="body2">
+              {"Don't have an account? Sign Up"}
+            </Link>
+          </Box>
         </Box>
       </Box>
       <Copyright sx={{ mt: 8, mb: 4 }} />

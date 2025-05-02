@@ -31,6 +31,7 @@ func (h *UserHandler) RegisterUser(c *gin.Context) {
 		Email:     req.Email,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Role:      models.RoleUser,
 	}
 
 	if err := newUser.SetPassword(req.Password); err != nil {

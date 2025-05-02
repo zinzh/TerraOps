@@ -1,5 +1,15 @@
 import apiClient from './api';
-import { User } from '../types'; // Import User type
+// Remove CreateUserRequest from import if it's not defined in ../types
+// import { User, CreateUserRequest } from '../types';
+import { User } from '../types';
+
+// Define CreateUserRequest here if not available globally
+interface CreateUserRequest {
+  email: string;
+  password: string;
+  first_name?: string; // Match JSON tags from backend model
+  last_name?: string;  // Match JSON tags from backend model
+}
 
 interface LoginRequest {
   email: string;
@@ -55,8 +65,18 @@ const isUser = (): boolean => {
   return user?.role === 'user' || user?.role === 'admin';
 };
 
+// Add Register function
+const register = async (userData: CreateUserRequest): Promise<User> => {
+  // The backend endpoint is /api/users (POST)
+  const response = await apiClient.post<User>('/users', userData);
+  // Registration might not automatically log the user in, so we just return the created user data
+  // Or handle potential errors like duplicate email (backend returns 409 Conflict)
+  return response.data;
+};
+
 const authService = {
   login,
+  register, // Add register here
   logout,
   getCurrentUser,
   isAuthenticated,
